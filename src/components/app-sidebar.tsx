@@ -1,155 +1,99 @@
 import * as React from "react"
 import {
-  AudioWaveform,
-  BookOpen,
-  Bot,
-  Command,
-  Frame,
-  GalleryVerticalEnd,
-  Map,
-  PieChart,
-  Settings2,
-  SquareTerminal,
-} from "lucide-react"
+  IconCreditCard,
+  IconLayoutGrid,
+  IconSettings,
+  IconShield,
+  IconUsers,
+  IconUsersGroup,
+  IconUserPlus,
+  IconWorld,
+} from "@tabler/icons-react"
 
-import { NavMain } from "src/components/nav-main"
-import { NavProjects } from "src/components/nav-projects"
-import { NavUser } from "src/components/nav-user"
-import { TeamSwitcher } from "src/components/team-switcher"
+import { NavMain } from "@/components/nav-main"
+import { NavProjects } from "@/components/nav-projects"
+import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
-} from "src/components/ui/sidebar"
+} from "@/components/ui/sidebar"
 
-// This is sample data.
 const data = {
   user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
+    name: "Admin",
+    email: "admin@melp.com",
+    avatar: "",
   },
-  teams: [
-    {
-      name: "Acme Inc",
-      logo: GalleryVerticalEnd,
-      plan: "Enterprise",
-    },
-    {
-      name: "Acme Corp.",
-      logo: AudioWaveform,
-      plan: "Startup",
-    },
-    {
-      name: "Evil Corp.",
-      logo: Command,
-      plan: "Free",
-    },
-  ],
   navMain: [
     {
-      title: "Playground",
+      title: "Users",
       url: "#",
-      icon: SquareTerminal,
+      icon: IconUsers,
       isActive: true,
       items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
+        { title: "All Users", url: "#" },
+        { title: "Active Users", url: "#" },
+        { title: "Inactive Users", url: "#" },
+        { title: "Deleted Users", url: "#" },
       ],
     },
     {
-      title: "Models",
+      title: "Access Management",
       url: "#",
-      icon: Bot,
+      icon: IconShield,
       items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
+        { title: "User Groups", url: "#" },
+        { title: "Policies", url: "#" },
+        { title: "Domain Access", url: "#" },
       ],
     },
     {
-      title: "Documentation",
+      title: "Registration",
       url: "#",
-      icon: BookOpen,
+      icon: IconUserPlus,
       items: [
-        {
-          title: "Introduction",
-          url: "#",
-        },
-        {
-          title: "Get Started",
-          url: "#",
-        },
-        {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
-          url: "#",
-        },
+        { title: "Add User", url: "#" },
+        { title: "Bulk Upload", url: "#" },
+        { title: "User List", url: "#" },
       ],
     },
     {
       title: "Settings",
       url: "#",
-      icon: Settings2,
+      icon: IconSettings,
       items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
+        { title: "General", url: "#" },
+        { title: "Team", url: "#" },
+        { title: "Billing", url: "#" },
       ],
     },
   ],
   projects: [
     {
-      name: "Design Engineering",
+      name: "Teams",
       url: "#",
-      icon: Frame,
+      icon: IconUsersGroup,
     },
     {
-      name: "Sales & Marketing",
+      name: "Groups",
       url: "#",
-      icon: PieChart,
+      icon: IconLayoutGrid,
     },
     {
-      name: "Travel",
+      name: "Domains",
       url: "#",
-      icon: Map,
+      icon: IconWorld,
+    },
+    {
+      name: "Payments",
+      url: "#",
+      icon: IconCreditCard,
     },
   ],
 }
@@ -158,7 +102,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              size="lg"
+              className="data-[slot=sidebar-menu-button]:p-1.5!"
+            >
+              <a href="#">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                  <IconLayoutGrid className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">Melp Admin</span>
+                  <span className="truncate text-xs">Dashboard</span>
+                </div>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
