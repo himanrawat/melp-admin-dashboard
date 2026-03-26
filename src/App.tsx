@@ -1,12 +1,12 @@
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/layout/app-sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/layout/site-header"
 import { DashboardPage } from "@/pages/DashboardPage"
 
 function App() {
   return (
     <SidebarProvider>
-      <AppSidebar variant="inset" />
+      <AppSidebar />
       <SidebarInset>
         <SiteHeader />
         <DashboardPage />
