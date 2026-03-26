@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "header": "Executive Summary",
+    "type": "Executive Summary",
+    "status": "Done",
+    "target": "20",
+    "limit": "25",
+    "reviewer": "Eddie Lake"
+  },
+  {
+    "id": 2,
+    "header": "Technical Approach",
+    "type": "Technical Approach",
+    "status": "In Progress",
+    "target": "150",
+    "limit": "200",
+    "reviewer": "Assign reviewer"
+  },
+  {
+    "id": 3,
+    "header": "Design Specifications",
+    "type": "Design",
+    "status": "Done",
+    "target": "18",
+    "limit": "25",
+    "reviewer": "Jamik Tashpulatov"
+  },
+  {
+    "id": 4,
+    "header": "Core Capabilities",
+    "type": "Capabilities",
+    "status": "In Progress",
+    "target": "45",
+    "limit": "50",
+    "reviewer": "Eddie Lake"
+  },
+  {
+    "id": 5,
+    "header": "Past Performance",
+    "type": "Narrative",
+    "status": "Done",
+    "target": "8",
+    "limit": "10",
+    "reviewer": "Emily Whalen"
+  },
+  {
+    "id": 6,
+    "header": "Key Personnel",
+    "type": "Focus Documents",
+    "status": "In Progress",
+    "target": "12",
+    "limit": "15",
+    "reviewer": "Assign reviewer"
+  },
+  {
+    "id": 7,
+    "header": "Table of Contents",
+    "type": "Table of Contents",
+    "status": "Done",
+    "target": "3",
+    "limit": "5",
+    "reviewer": "Jamik Tashpulatov"
+  },
+  {
+    "id": 8,
+    "header": "Cover Page",
+    "type": "Cover Page",
+    "status": "Done",
+    "target": "1",
+    "limit": "1",
+    "reviewer": "Eddie Lake"
+  }
+]

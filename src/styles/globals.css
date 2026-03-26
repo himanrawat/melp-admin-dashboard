@@ -1,0 +1,216 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* ============================================
+   DARK MODE VARIANT
+   ============================================ */
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================
+   TAILWIND THEME — Bridge CSS vars → utility classes
+   ============================================ */
+@theme inline {
+  /* Colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Chart Colors */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar Colors */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Semantic Colors (custom extensions) */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Radius Scale */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Font */
+  --font-sans: "Montserrat", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* ============================================
+   LIGHT MODE TOKENS (Melp Design System)
+   ============================================ */
+:root {
+  /* Base radius */
+  --radius: 0.625rem;
+
+  /* 60% — Backgrounds & Surfaces */
+  --background: #F5F5F7;
+  --foreground: #222020;
+  --card: #FFFFFF;
+  --card-foreground: #222020;
+  --popover: #FFFFFF;
+  --popover-foreground: #222020;
+
+  /* 10% — Brand Accent */
+  --primary: #EE4136;
+  --primary-foreground: #FFFFFF;
+
+  /* 30% — Secondary & Muted */
+  --secondary: #F2F2F2;
+  --secondary-foreground: #484445;
+  --muted: #F2F2F2;
+  --muted-foreground: #737070;
+  --accent: #FFF5F7;
+  --accent-foreground: #B9251C;
+
+  /* Destructive */
+  --destructive: #DC2626;
+
+  /* Borders & Inputs */
+  --border: #D1D0D0;
+  --input: #D1D0D0;
+  --ring: #EE4136;
+
+  /* Chart Colors */
+  --chart-1: #EE4136;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #216BDE;
+  --chart-5: #FF0059;
+
+  /* Sidebar */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #222020;
+  --sidebar-primary: #222020;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F2F2F2;
+  --sidebar-accent-foreground: #222020;
+  --sidebar-border: #D1D0D0;
+  --sidebar-ring: #222020;
+
+  /* Semantic Colors */
+  --success: #10B981;
+  --success-foreground: #FFFFFF;
+  --warning: #F59E0B;
+  --warning-foreground: #FFFFFF;
+  --info: #216BDE;
+  --info-foreground: #FFFFFF;
+}
+
+/* ============================================
+   DARK MODE TOKENS (Melp Design System)
+   ============================================ */
+.dark {
+  /* 60% — Backgrounds & Surfaces */
+  --background: #1F1C1C;
+  --foreground: #E5E5E5;
+  --card: #35383F;
+  --card-foreground: #E5E5E5;
+  --popover: #383838;
+  --popover-foreground: #E5E5E5;
+
+  /* 10% — Brand Accent (stays same) */
+  --primary: #EE4136;
+  --primary-foreground: #FFFFFF;
+
+  /* 30% — Secondary & Muted */
+  --secondary: #383838;
+  --secondary-foreground: #DDDADA;
+  --muted: #383838;
+  --muted-foreground: #898787;
+  --accent: #35383F;
+  --accent-foreground: #F87971;
+
+  /* Destructive */
+  --destructive: #F87171;
+
+  /* Borders & Inputs */
+  --border: #464544;
+  --input: #464544;
+  --ring: #F87971;
+
+  /* Chart Colors */
+  --chart-1: #F87971;
+  --chart-2: #6EE7B7;
+  --chart-3: #FBBF24;
+  --chart-4: #60A5FA;
+  --chart-5: #FF5C7A;
+
+  /* Sidebar */
+  --sidebar: #1F1C1C;
+  --sidebar-foreground: #E5E5E5;
+  --sidebar-primary: #E5E5E5;
+  --sidebar-primary-foreground: #1F1C1C;
+  --sidebar-accent: #383838;
+  --sidebar-accent-foreground: #E5E5E5;
+  --sidebar-border: #464544;
+  --sidebar-ring: #E5E5E5;
+
+  /* Semantic Colors */
+  --success: #6EE7B7;
+  --success-foreground: #065F46;
+  --warning: #FBBF24;
+  --warning-foreground: #78350F;
+  --info: #60A5FA;
+  --info-foreground: #1E3A8A;
+}
+
+/* ============================================
+   BASE LAYER
+   ============================================ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+}
+
+/* ============================================
+   COMPONENT LAYER — Melp-specific utilities
+   ============================================ */
+@layer components {
+  /* Melp signature asymmetric radius (buttons only) */
+  .melp-radius {
+    border-radius: var(--radius-2xl);
+    border-top-left-radius: 0;
+  }
+}
