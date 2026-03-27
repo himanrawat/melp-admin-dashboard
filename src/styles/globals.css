@@ -92,8 +92,8 @@
   --secondary-foreground: #484445;
   --muted: #F2F2F2;
   --muted-foreground: #737070;
-  --accent: #FFF5F7;
-  --accent-foreground: #B9251C;
+  --accent: #F2F2F2;
+  --accent-foreground: #484445;
 
   /* Destructive */
   --destructive: #DC2626;
@@ -101,7 +101,7 @@
   /* Borders & Inputs */
   --border: #D1D0D0;
   --input: #D1D0D0;
-  --ring: #EE4136;
+  --ring: #484445;
 
   /* Chart Colors */
   --chart-1: #EE4136;
@@ -136,7 +136,7 @@
   /* 60% — Backgrounds & Surfaces */
   --background: #1F1C1C;
   --foreground: #E5E5E5;
-  --card: #35383F;
+  --card: #2c2c2c;
   --card-foreground: #E5E5E5;
   --popover: #383838;
   --popover-foreground: #E5E5E5;
@@ -150,8 +150,8 @@
   --secondary-foreground: #DDDADA;
   --muted: #383838;
   --muted-foreground: #898787;
-  --accent: #35383F;
-  --accent-foreground: #F87971;
+  --accent: #383838;
+  --accent-foreground: #DDDADA;
 
   /* Destructive */
   --destructive: #F87171;
@@ -159,7 +159,7 @@
   /* Borders & Inputs */
   --border: #464544;
   --input: #464544;
-  --ring: #F87971;
+  --ring: #898787;
 
   /* Chart Colors */
   --chart-1: #F87971;
@@ -191,6 +191,7 @@
    BASE LAYER
    ============================================ */
 @layer base {
+
   *,
   *::before,
   *::after {
@@ -202,12 +203,29 @@
     color: var(--foreground);
     font-family: var(--font-sans);
   }
+
+  a {
+    color: var(--info);
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+
+  a:hover {
+    opacity: 0.75;
+  }
+
+  /* Reset link color inside sidebar — icons/text inherit sidebar foreground */
+  [data-slot="sidebar"] a,
+  [data-sidebar] a {
+    color: inherit;
+  }
 }
 
 /* ============================================
    COMPONENT LAYER — Melp-specific utilities
    ============================================ */
 @layer components {
+
   /* Melp signature asymmetric radius (buttons only) */
   .melp-radius {
     border-radius: var(--radius-2xl);
