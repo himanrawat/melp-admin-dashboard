@@ -1,15 +1,14 @@
 import * as React from "react"
+import { Link, useLocation } from "react-router-dom"
 import {
   IconLayoutDashboard,
   IconSettings,
-  IconUsers,
   IconShieldLock,
-  IconUsersGroup,
-  IconClipboardList,
   IconWorld,
   IconUserPlus,
   IconCreditCard,
   IconChevronRight,
+  IconFolder,
 } from "@tabler/icons-react"
 
 import { Logo } from "@/assets/logo"
@@ -40,71 +39,58 @@ type NavItem = {
   title: string
   url: string
   icon: React.ElementType
-  isActive?: boolean
   children?: { title: string; url: string }[]
 }
 
 const navItems: NavItem[] = [
   {
     title: "Dashboard",
-    url: "#",
+    url: "/dashboard",
     icon: IconLayoutDashboard,
-    isActive: true,
   },
   {
-    title: "Users",
-    url: "#",
-    icon: IconUsers,
+    title: "Directories",
+    url: "/users",
+    icon: IconFolder,
     children: [
-      { title: "All Users", url: "#" },
-      { title: "Active Users", url: "#" },
-      { title: "Inactive Users", url: "#" },
-      { title: "Deleted Users", url: "#" },
+      { title: "Users", url: "/users" },
+      { title: "Teams", url: "/teams" },
+      { title: "Groups", url: "/groups" },
     ],
   },
   {
     title: "Access Management",
-    url: "#",
+    url: "/access",
     icon: IconShieldLock,
     children: [
-      { title: "User Groups", url: "#" },
-      { title: "Policies", url: "#" },
-      { title: "Domain Access", url: "#" },
+      { title: "User Groups", url: "/access/groups" },
+      { title: "Policies", url: "/access/policies" },
+      { title: "Domain Access", url: "/access/domains" },
     ],
   },
   {
-    title: "Teams",
-    url: "#",
-    icon: IconUsersGroup,
-  },
-  {
-    title: "Groups",
-    url: "#",
-    icon: IconClipboardList,
-  },
-  {
     title: "Registration",
-    url: "#",
+    url: "/registration",
     icon: IconUserPlus,
     children: [
-      { title: "Add User", url: "#" },
-      { title: "Bulk Upload", url: "#" },
-      { title: "User List", url: "#" },
+      { title: "Add User", url: "/registration/add" },
+      { title: "Bulk Upload", url: "/registration/bulk" },
+      { title: "User List", url: "/registration/list" },
     ],
   },
   {
     title: "Domains",
-    url: "#",
+    url: "/domains",
     icon: IconWorld,
   },
   {
     title: "Payments",
-    url: "#",
+    url: "/payments",
     icon: IconCreditCard,
   },
   {
     title: "Settings",
-    url: "#",
+    url: "/settings",
     icon: IconSettings,
   },
 ]
@@ -127,6 +113,19 @@ function SidebarLogo() {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { pathname } = useLocation()
+
+  function isItemActive(item: NavItem) {
+    if (item.children) {
+      return item.children.some((c) => pathname === c.url)
+    }
+    return pathname === item.url
+  }
+
+  function isChildActive(childUrl: string) {
+    return pathname === childUrl
+  }
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -147,10 +146,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenu>
             {navItems.map((item) =>
               item.children ? (
-                <Collapsible key={item.title} asChild className="group/collapsible">
+                <Collapsible
+                  key={item.title}
+                  asChild
+                  defaultOpen={isItemActive(item)}
+                  className="group/collapsible"
+                >
                   <SidebarMenuItem>
                     <CollapsibleTrigger asChild>
-                      <SidebarMenuButton tooltip={item.title}>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        isActive={isItemActive(item)}
+                      >
                         <item.icon className="size-5" />
                         <span>{item.title}</span>
                         <IconChevronRight className="ml-auto size-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
@@ -160,10 +167,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       <SidebarMenuSub>
                         {item.children.map((child) => (
                           <SidebarMenuSubItem key={child.title}>
-                            <SidebarMenuSubButton asChild>
-                              <a href={child.url}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={isChildActive(child.url)}
+                            >
+                              <Link to={child.url}>
                                 <span>{child.title}</span>
-                              </a>
+                              </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
                         ))}
@@ -176,12 +186,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <SidebarMenuButton
                     asChild
                     tooltip={item.title}
-                    isActive={item.isActive}
+                    isActive={isItemActive(item)}
                   >
-                    <a href={item.url}>
+                    <Link to={item.url}>
                       <item.icon className="size-5" />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )
