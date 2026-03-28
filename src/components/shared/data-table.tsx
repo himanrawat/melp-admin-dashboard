@@ -1,4 +1,4 @@
-import { type ReactNode, type CSSProperties, type KeyboardEvent, useCallback } from "react";
+import { type ReactNode, type CSSProperties, type KeyboardEvent, useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -10,6 +10,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -59,6 +67,12 @@ export type DataTableProps<T> = {
   caption?: string;
   /** Extra class names on the outermost wrapper. */
   className?: string;
+  /** Enable client-side pagination. When `true`, defaults to 10 rows per page. */
+  paginated?: boolean;
+  /** Number of rows per page. Only used when `paginated` is `true`. @default 10 */
+  pageSize?: number;
+  /** Available page-size options shown in the selector. @default [10, 20, 30, 50] */
+  pageSizeOptions?: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -240,6 +254,104 @@ function DataTableDataBody<T>({
 }
 
 // ---------------------------------------------------------------------------
+// Pagination controls
+// ---------------------------------------------------------------------------
+
+const PAGE_SIZE_OPTIONS_DEFAULT = [10, 20, 30, 50];
+
+function DataTablePagination({
+  page,
+  pageCount,
+  pageSize,
+  pageSizeOptions,
+  totalRows,
+  onPageChange,
+  onPageSizeChange,
+}: Readonly<{
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  pageSizeOptions: number[];
+  totalRows: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}>) {
+  const start = page * pageSize + 1;
+  const end = Math.min((page + 1) * pageSize, totalRows);
+
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <span>Rows per page</span>
+        <Select
+          value={String(pageSize)}
+          onValueChange={(v) => onPageSizeChange(Number(v))}
+        >
+          <SelectTrigger className="h-8 w-[70px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((opt) => (
+              <SelectItem key={opt} value={String(opt)}>
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span>
+          {start}–{end} of {totalRows}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            disabled={page === 0}
+            onClick={() => onPageChange(0)}
+            aria-label="First page"
+          >
+            «
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            disabled={page === 0}
+            onClick={() => onPageChange(page - 1)}
+            aria-label="Previous page"
+          >
+            ‹
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            disabled={page >= pageCount - 1}
+            onClick={() => onPageChange(page + 1)}
+            aria-label="Next page"
+          >
+            ›
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            disabled={page >= pageCount - 1}
+            onClick={() => onPageChange(pageCount - 1)}
+            aria-label="Last page"
+          >
+            »
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DataTable — public component
 // ---------------------------------------------------------------------------
 //
@@ -293,9 +405,32 @@ export function DataTable<T>({
   emptyState,
   caption,
   className,
+  paginated = false,
+  pageSize: initialPageSize = 10,
+  pageSizeOptions = PAGE_SIZE_OPTIONS_DEFAULT,
 }: Readonly<DataTableProps<T>>) {
   const cellPadding = compact ? CELL_PADDING_COMPACT : CELL_PADDING_DEFAULT;
+
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+
+  // Reset to first page when data length changes or page size changes
+  const safeCurrentPage = currentPage >= pageCount ? 0 : currentPage;
+
+  const visibleData = useMemo(() => {
+    if (!paginated || loading) return data;
+    const start = safeCurrentPage * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [paginated, loading, data, safeCurrentPage, pageSize]);
+
   const isEmpty = !loading && data.length === 0;
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(0);
+  };
 
   let body: ReactNode;
   if (loading) {
@@ -316,7 +451,7 @@ export function DataTable<T>({
     body = (
       <DataTableDataBody
         columns={columns}
-        data={data}
+        data={visibleData}
         rowKey={rowKey}
         onRowClick={onRowClick}
         striped={striped}
@@ -336,6 +471,17 @@ export function DataTable<T>({
           <DataTableHeader columns={columns} cellPadding={cellPadding} />
           {body}
         </Table>
+        {paginated && !loading && !isEmpty && (
+          <DataTablePagination
+            page={safeCurrentPage}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            pageSizeOptions={pageSizeOptions}
+            totalRows={data.length}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
+        )}
       </div>
     </div>
   );

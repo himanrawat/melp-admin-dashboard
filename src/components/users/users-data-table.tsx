@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { IconDots, IconUserCheck, IconUserOff } from "@tabler/icons-react"
+import { IconDots, IconUserCheck, IconUserOff, IconKey } from "@tabler/icons-react"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,7 @@ export const ALL_COLUMNS: { key: ColKey; label: string }[] = [
 ]
 
 export const DEFAULT_VISIBLE_COLS: ColKey[] = [
-  "name", "email", "department", "designation", "location", "status", "joinedAt", "actions",
+  "name", "email", "status", "joinedAt", "actions",
 ]
 
 // ── Status badge ───────────────────────────────────────────
@@ -116,10 +116,29 @@ export function UsersDataTable({
       header: "Name",
       accessor: (u) => (
         <div className="flex items-center gap-3">
-          <div className="size-8 rounded bg-muted flex items-center justify-center text-xs font-medium shrink-0">
-            {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+          <div className="relative size-8 shrink-0">
+            <div className="size-8 rounded bg-muted flex items-center justify-center text-xs font-medium">
+              {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+            </div>
+            {u.avatar && (
+              <img
+                src={u.avatar}
+                alt={u.name}
+                className="absolute inset-0 size-8 rounded object-cover border"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none"
+                }}
+              />
+            )}
+            {u.isAdmin && (
+              <span className="absolute bottom-0 right-0 rounded bg-background p-0.5 border border-border">
+                <IconKey className="size-2 text-[#ee4136]" />
+              </span>
+            )}
           </div>
-          <span className="font-medium">{u.name}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-medium truncate">{u.name}</span>
+          </div>
         </div>
       ),
       minWidth: "180px",
@@ -185,6 +204,7 @@ export function UsersDataTable({
       data={users}
       rowKey={(u) => u.id}
       emptyState={<span>No users found.</span>}
+      paginated
     />
   )
 }

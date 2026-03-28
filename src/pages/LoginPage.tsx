@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { IconEye, IconEyeOff, IconLoader2 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
@@ -6,9 +6,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { LogoShort } from "@/assets/logo-short"
+import { useAuth } from "@/context/auth-context"
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const { login, isAuthenticated } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -16,7 +18,12 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  function handleSubmit(e: React.FormEvent) {
+  // Auto-redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) navigate("/dashboard", { replace: true })
+  }, [isAuthenticated, navigate])
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
     if (!email || !password) {
@@ -24,11 +31,14 @@ export function LoginPage() {
       return
     }
     setLoading(true)
-    // Simulate auth
-    setTimeout(() => {
-      setLoading(false)
+    try {
+      await login({ email, password })
       navigate("/dashboard")
-    }, 1200)
+    } catch (err) {
+      setError((err as Error).message || "Unable to login")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

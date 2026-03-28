@@ -78,7 +78,6 @@ export function UsersToolbar({
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
-            <SelectItem value="deleted">Deleted</SelectItem>
           </SelectContent>
         </Select>
       )}
@@ -95,7 +94,7 @@ export function UsersToolbar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          {ALL_COLUMNS.filter((c) => !(c.key === "status" && !showStatusFilter)).map((col) => {
+          {ALL_COLUMNS.map((col) => {
             const isChecked = visibleCols.has(col.key)
             const isDisabled = isChecked && atMin
             return (

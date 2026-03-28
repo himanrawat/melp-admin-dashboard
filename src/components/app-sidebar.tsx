@@ -1,4 +1,5 @@
-import * as React from "react"
+import React from "react"
+import { useAuth } from "@/context/auth-context"
 import { Link, useLocation } from "react-router-dom"
 import {
   IconLayoutDashboard,
@@ -95,13 +96,6 @@ const navItems: NavItem[] = [
   },
 ]
 
-const data = {
-  user: {
-    name: "James William",
-    email: "william01@gmail.com",
-    avatar: "",
-  },
-}
 
 function SidebarLogo() {
   const { open } = useSidebar()
@@ -114,6 +108,13 @@ function SidebarLogo() {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { pathname } = useLocation()
+  const { authState } = useAuth()
+
+  const user = {
+    name: authState?.user?.fullName || "Admin",
+    email: authState?.user?.email || "",
+    avatar: "",
+  }
 
   function isItemActive(item: NavItem) {
     if (item.children) {
@@ -200,7 +201,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

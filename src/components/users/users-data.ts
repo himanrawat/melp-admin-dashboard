@@ -6,6 +6,7 @@ export type User = {
   name: string
   email: string
   avatar?: string
+  isAdmin?: boolean
   department: string
   designation: string
   location: string

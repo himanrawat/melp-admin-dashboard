@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useAuth } from "@/context/auth-context"
 
 function SaveButton({ saving, saved }: { saving: boolean; saved: boolean }) {
   return (
@@ -156,16 +157,20 @@ function OrganisationTab() {
 }
 
 function ProfileTab() {
+  const { authState } = useAuth()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const fullName = authState?.user?.fullName || ""
+  const nameParts = fullName.split(" ")
   const [form, setForm] = useState({
-    firstName: "James",
-    lastName: "William",
-    email: "william01@gmail.com",
-    phone: "+1 (555) 012-3456",
-    designation: "System Administrator",
-    location: "New York, NY",
+    firstName: nameParts[0] || "",
+    lastName: nameParts.slice(1).join(" ") || "",
+    email: authState?.user?.email || "",
+    phone: "",
+    designation: "",
+    location: "",
   })
+  const initials = `${form.firstName?.[0] || ""}${form.lastName?.[0] || ""}`.toUpperCase() || "??"
 
   function handleChange(field: keyof typeof form, value: string) {
     setForm((p) => ({ ...p, [field]: value }))
@@ -185,7 +190,7 @@ function ProfileTab() {
         <CardContent>
           <div className="flex items-center gap-4">
             <Avatar className="size-16">
-              <AvatarFallback className="text-xl font-semibold">JW</AvatarFallback>
+              <AvatarFallback className="text-xl font-semibold">{initials}</AvatarFallback>
             </Avatar>
             <div className="flex flex-col gap-2">
               <Button type="button" variant="outline" size="sm">Upload Photo</Button>

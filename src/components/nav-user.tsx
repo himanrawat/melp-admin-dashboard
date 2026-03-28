@@ -1,4 +1,3 @@
-"use client"
 
 import {
   IconCreditCard,
@@ -28,6 +27,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/context/auth-context"
+import { useNavigate } from "react-router-dom"
 
 export function NavUser({
   user,
@@ -39,6 +40,20 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+
+  const initials = user.name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "AD"
+
+  const handleLogout = () => {
+    logout()
+    navigate("/login")
+  }
 
   return (
     <SidebarMenu>
@@ -51,7 +66,7 @@ export function NavUser({
             >
               <Avatar className="h-8 w-8 rounded grayscale">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded">CN</AvatarFallback>
+                <AvatarFallback className="rounded">{initials}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -72,7 +87,7 @@ export function NavUser({
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded">
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded">CN</AvatarFallback>
+                  <AvatarFallback className="rounded">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>
@@ -98,7 +113,7 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>
               <IconLogout />
               Log out
             </DropdownMenuItem>

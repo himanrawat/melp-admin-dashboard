@@ -4,9 +4,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { useTheme } from "@/hooks/use-theme"
+import { useAuth } from "@/context/auth-context"
 
-export function SiteHeader() {
+export function SiteHeader({ onSelectDomain }: { onSelectDomain?: () => void }) {
   const { theme, toggleTheme } = useTheme()
+  const { authState, selectedClientName } = useAuth()
+
+  const firstName = authState?.user?.fullName?.split(" ")[0] || "Admin"
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-card px-4 lg:px-6">
@@ -17,10 +21,19 @@ export function SiteHeader() {
           orientation="vertical"
           className="mr-2 data-[orientation=vertical]:h-4 shrink-0"
         />
-        <div className="min-w-0">
+        <button
+          onClick={onSelectDomain}
+          className="min-w-0 text-left disabled:pointer-events-none"
+          disabled={!onSelectDomain}
+        >
           <h1 className="text-lg sm:text-xl font-semibold truncate">Dashboard</h1>
-          <p className="text-xs text-muted-foreground hidden sm:block">Welcome back, James</p>
-        </div>
+          <p className="text-xs text-muted-foreground hidden sm:block">
+            Welcome back, {firstName}
+            {selectedClientName
+              ? ` · ${selectedClientName}`
+              : onSelectDomain ? " · Click to select domain" : ""}
+          </p>
+        </button>
       </div>
 
       {/* Right side: search + actions */}
@@ -69,4 +82,3 @@ export function SiteHeader() {
     </header>
   )
 }
-
