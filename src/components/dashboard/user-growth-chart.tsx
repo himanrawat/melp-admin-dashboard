@@ -45,7 +45,7 @@ export function UserGrowthChart() {
         </CardAction>
       </CardHeader>
       <CardContent className="flex-1">
-        <ChartContainer config={chartConfig} className="h-50 sm:h-60 w-full">
+        <ChartContainer config={chartConfig} className="h-45 sm:h-55 md:h-50 lg:h-55 w-full">
           <AreaChart data={data}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis

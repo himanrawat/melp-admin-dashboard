@@ -26,8 +26,11 @@ export function UsersPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
 
+  const MIN_COLS = 4
+
   function handleToggleCol(key: ColKey) {
     setVisibleCols((prev) => {
+      if (prev.has(key) && prev.size <= MIN_COLS) return prev
       const next = new Set(prev)
       if (next.has(key)) next.delete(key); else next.add(key)
       return next
@@ -71,10 +74,15 @@ export function UsersPage() {
     setUsers((prev) => prev.map((u) => u.id === id ? { ...u, status: newStatus } : u))
   }
 
+  function handleEdit(updated: User) {
+    setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u))
+  }
+
   // ── Shared table props ─────────────────────────────────
   const tableProps = {
     visibleCols,
     onToggleStatus: handleToggleStatus,
+    onEdited: handleEdit,
     onAdd: () => setAddOpen(true),
     onInvite: () => setInviteOpen(true),
   }
@@ -144,6 +152,7 @@ export function UsersPage() {
           showStatusFilter={activeTab === "all"}
           visibleCols={visibleCols}
           onToggleCol={handleToggleCol}
+          minCols={MIN_COLS}
         />
 
         <TabsContent value="all" className="mt-4">

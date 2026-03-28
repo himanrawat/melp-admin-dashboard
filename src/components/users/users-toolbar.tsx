@@ -27,6 +27,7 @@ export function UsersToolbar({
   showStatusFilter,
   visibleCols,
   onToggleCol,
+  minCols,
 }: {
   search: string
   onSearchChange: (value: string) => void
@@ -38,7 +39,9 @@ export function UsersToolbar({
   showStatusFilter: boolean
   visibleCols: Set<ColKey>
   onToggleCol: (key: ColKey) => void
+  minCols?: number
 }) {
+  const atMin = minCols !== undefined && visibleCols.size <= minCols
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mt-4">
       {/* Search */}
@@ -92,16 +95,21 @@ export function UsersToolbar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          {ALL_COLUMNS.filter((c) => !(c.key === "status" && !showStatusFilter)).map((col) => (
-            <DropdownMenuItem
-              key={col.key}
-              onSelect={(e) => { e.preventDefault(); onToggleCol(col.key) }}
-              className="flex items-center justify-between cursor-pointer"
-            >
-              {col.label}
-              {visibleCols.has(col.key) && <IconCheck className="size-3.5 text-primary" />}
-            </DropdownMenuItem>
-          ))}
+          {ALL_COLUMNS.filter((c) => !(c.key === "status" && !showStatusFilter)).map((col) => {
+            const isChecked = visibleCols.has(col.key)
+            const isDisabled = isChecked && atMin
+            return (
+              <DropdownMenuItem
+                key={col.key}
+                onSelect={(e) => { e.preventDefault(); if (!isDisabled) onToggleCol(col.key) }}
+                className="flex items-center justify-between cursor-pointer aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+                aria-disabled={isDisabled}
+              >
+                {col.label}
+                {isChecked && <IconCheck className="size-3.5 text-primary" />}
+              </DropdownMenuItem>
+            )
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
 

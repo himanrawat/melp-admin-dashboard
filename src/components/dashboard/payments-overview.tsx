@@ -23,9 +23,9 @@ function UsageBar({
           {used.toLocaleString()}{unit ? ` ${unit}` : ""} <span className="text-muted-foreground font-normal">/ {total.toLocaleString()}{unit ? ` ${unit}` : ""}</span>
         </span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+      <div className="h-1.5 w-full rounded bg-secondary overflow-hidden">
         <div
-          className="h-full rounded-full bg-foreground/30"
+          className="h-full rounded bg-foreground/30"
           style={{ width: `${percentage}%` }}
         />
       </div>

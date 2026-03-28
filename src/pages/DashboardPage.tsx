@@ -9,32 +9,32 @@ import { PaymentsOverview } from "@/components/dashboard/payments-overview"
 
 export function DashboardPage() {
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-auto">
+    <div className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:p-6 overflow-x-hidden overflow-y-auto">
 
       {/* Main two-column layout: left content + right payments panel */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_280px] xl:items-start">
 
         {/* Left column */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-w-0">
 
-          {/* Stat cards: 1 col on mobile, 3 cols on desktop */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* Stat cards: 1 col mobile, 2 cols tablet, 3 cols desktop */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <StatCards />
           </div>
 
-          {/* Charts row */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+          {/* Charts row: stacked mobile, side-by-side tablet+ */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5 lg:grid-cols-3">
+            <div className="md:col-span-3 lg:col-span-2">
               <UserGrowthChart />
             </div>
-            <div>
+            <div className="md:col-span-2 lg:col-span-1">
               <UserStatusBreakdown />
             </div>
           </div>
         </div>
 
         {/* Right column — Payments Overview */}
-        <div className="lg:sticky lg:top-4 h-full">
+        <div className="xl:sticky xl:top-4 xl:self-start h-full">
           <PaymentsOverview />
         </div>
       </div>

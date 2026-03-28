@@ -2,7 +2,6 @@
 
 import {
   Label,
-  PolarGrid,
   PolarRadiusAxis,
   RadialBar,
   RadialBarChart,
@@ -110,7 +109,7 @@ export function UserStatusBreakdown() {
             />
           </RadialBarChart>
         </ChartContainer>
-        <div className="flex gap-4 text-xs w-full justify-center -mt-4 flex-wrap">
+        <div className="flex gap-x-4 gap-y-2 text-xs w-full justify-center -mt-4 flex-wrap">
           {([
             { key: "active", label: "Active", value: chartData[0].active },
             { key: "inactive", label: "Inactive", value: chartData[0].inactive },
@@ -118,7 +117,7 @@ export function UserStatusBreakdown() {
           ] as const).map((item) => (
             <div key={item.key} className="flex items-center gap-1.5">
               <div
-                className="size-2 rounded-full shrink-0"
+                className="size-2 rounded-sm shrink-0"
                 style={{ backgroundColor: `var(--color-${item.key})` }}
               />
               <span className="text-muted-foreground">{item.label}</span>

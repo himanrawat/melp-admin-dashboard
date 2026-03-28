@@ -3,7 +3,6 @@ import {
   IconUsersGroup,
   IconWorld,
   IconTrendingUp,
-  IconClipboardList,
 } from "@tabler/icons-react"
 import {
   Card,
