@@ -1,159 +1,631 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
-  IconPlus, IconSearch, IconDots, IconWorld, IconLock, IconPencil, IconTrash, IconUsers, IconShieldCheck, IconLoader2,
+  IconArrowLeft,
+  IconLinkPlus,
+  IconLoader2,
+  IconSearch,
+  IconTrash,
 } from "@tabler/icons-react"
+import { toast } from "sonner"
+
+import {
+  assignMultiplePolicies,
+  fetchDomainPolicies,
+  fetchPolicies,
+  fetchPolicyById,
+  removeMultiplePolicies,
+} from "@/api/admin"
+import {
+  getErrorDescription,
+  getStatusCodeFromError,
+  mapDomainPolicySummary,
+  mapPolicyDetail,
+  mapPolicySummary,
+  normalizeListPayload,
+} from "@/components/access-management/runtime"
+import type {
+  AccessModule,
+  AccessPolicy,
+  PolicyEntity,
+} from "@/components/access-management/types"
+import { DataTable, type ColumnDef } from "@/components/shared/data-table"
+import {
+  StatusState,
+  StatusStateActions,
+  type StatusStateCode,
+} from "@/components/shared/status-state"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { fetchDomains } from "@/api/admin"
 import { useAuth } from "@/context/auth-context"
 
-type DomainAccess = { id: string; domain: string; accessType: "full" | "restricted" | "blocked"; allowedGroups: string[]; activeUsers: number; status: "active" | "inactive"; lastModified: string }
-
-const accessTypeConfig = {
-  full: { label: "Full Access", icon: IconShieldCheck, color: "text-success", bg: "bg-success/10" },
-  restricted: { label: "Restricted", icon: IconShieldCheck, color: "text-warning", bg: "bg-warning/10" },
-  blocked: { label: "Blocked", icon: IconLock, color: "text-destructive", bg: "bg-destructive/10" },
-}
-
-function AddDomainAccessDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (d: Omit<DomainAccess, "id" | "lastModified" | "activeUsers">) => void }) {
-  const [domain, setDomain] = useState(""); const [accessType, setAccessType] = useState<"full" | "restricted" | "blocked">("restricted")
-  function handleSubmit(e: React.FormEvent) { e.preventDefault(); if (!domain) return; onAdd({ domain, accessType, allowedGroups: [], status: "active" }); setDomain(""); setAccessType("restricted"); onClose() }
-  return (
-    <Dialog open={open} onOpenChange={onClose}><DialogContent><DialogHeader><DialogTitle>Configure Domain Access</DialogTitle></DialogHeader>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-2">
-        <div className="flex flex-col gap-1.5"><Label>Domain</Label><Input placeholder="e.g. app.company.com" value={domain} onChange={(e) => setDomain(e.target.value)} /></div>
-        <div className="flex flex-col gap-1.5"><Label>Access Type</Label>
-          <Select value={accessType} onValueChange={(v) => setAccessType(v as "full" | "restricted" | "blocked")}><SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="full">Full Access — all authenticated users</SelectItem><SelectItem value="restricted">Restricted — selected groups only</SelectItem><SelectItem value="blocked">Blocked — no access</SelectItem></SelectContent></Select>
-        </div>
-        <DialogFooter className="mt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" className="melp-radius">Save Configuration</Button></DialogFooter>
-      </form></DialogContent></Dialog>
-  )
-}
+type DomainView = "overview" | "attach" | "policy-detail"
 
 export function AccessDomainsPage() {
-  const { selectedClient, setSelectedClient } = useAuth()
-  const [domains, setDomains] = useState<DomainAccess[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const { domains, selectedClient, selectedClientName } = useAuth()
+
+  const [view, setView] = useState<DomainView>("overview")
   const [search, setSearch] = useState("")
-  const [accessFilter, setAccessFilter] = useState("all")
-  const [addOpen, setAddOpen] = useState(false)
+  const [attachSearch, setAttachSearch] = useState("")
 
-  const loadDomains = useCallback(async () => {
-    setLoading(true); setError("")
-    try {
-      const result = await fetchDomains(selectedClient || "")
-      const obj = result as Record<string, unknown> | null
-      const raw = Array.isArray(result) ? result
-        : Array.isArray(obj?.data) ? obj.data
-        : Array.isArray(obj?.list) ? obj.list
-        : []
-      const list = raw as Record<string, unknown>[]
-      const mapped: DomainAccess[] = list.map((d, idx) => ({
-        id: String(d.client_id || d.clientid || d.domainid || d.id || idx),
-        domain: String(d.website || d.client_name || d.domainname || d.domain || ""),
-        accessType: d.accesstype === "full" ? "full" : d.accesstype === "blocked" ? "blocked" : "restricted",
-        allowedGroups: Array.isArray(d.allowedgroups) ? (d.allowedgroups as string[]) : [],
-        activeUsers: Number(d.activeUsers || d.activeusers || d.usercount || 0),
-        status: d.isactive === false || d.status === "inactive" ? "inactive" : "active",
-        lastModified: String(d.modifieddate || d.lastModified || ""),
-      }))
-      if (!selectedClient && list.length > 0) {
-        const firstId = String(list[0].client_id || list[0].clientid || "")
-        const firstName = String(list[0].client_name || list[0].clientname || "")
-        if (firstId) setSelectedClient(firstId, firstName)
-      }
-      setDomains(mapped)
-    } catch (err) { setError((err as Error).message || "Failed to load domains"); setDomains([]) }
-    finally { setLoading(false) }
-  }, [selectedClient, setSelectedClient])
+  const [attachedPolicies, setAttachedPolicies] = useState<AccessPolicy[]>([])
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [overviewStatusCode, setOverviewStatusCode] = useState<StatusStateCode | undefined>()
+  const [overviewStatusMessage, setOverviewStatusMessage] = useState<string | undefined>()
+  const [selectedPolicyKeys, setSelectedPolicyKeys] = useState<Set<string>>(new Set())
 
-  useEffect(() => { loadDomains() }, [loadDomains])
+  const [attachablePolicies, setAttachablePolicies] = useState<AccessPolicy[]>([])
+  const [attachLoading, setAttachLoading] = useState(false)
+  const [attachStatusCode, setAttachStatusCode] = useState<StatusStateCode | undefined>()
+  const [attachStatusMessage, setAttachStatusMessage] = useState<string | undefined>()
+  const [selectedAttachKeys, setSelectedAttachKeys] = useState<Set<string>>(new Set())
 
-  const filtered = domains.filter((d) => {
-    const matchSearch = d.domain.toLowerCase().includes(search.toLowerCase())
-    const matchAccess = accessFilter === "all" || d.accessType === accessFilter
-    return matchSearch && matchAccess
+  const [selectedPolicy, setSelectedPolicy] = useState<AccessPolicy | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailStatusCode, setDetailStatusCode] = useState<StatusStateCode | undefined>()
+  const [detailStatusMessage, setDetailStatusMessage] = useState<string | undefined>()
+
+  const [saving, setSaving] = useState(false)
+
+  const currentDomain = domains.find((domain) => {
+    const domainId = String(domain.client_id || domain.clientid || domain.domain || "")
+    return domainId === selectedClient
   })
 
-  function handleAdd(data: Omit<DomainAccess, "id" | "lastModified" | "activeUsers">) { setDomains((prev) => [{ ...data, id: String(Date.now()), activeUsers: 0, lastModified: new Date().toISOString().split("T")[0] }, ...prev]) }
-  function handleDelete(id: string) { setDomains((prev) => prev.filter((d) => d.id !== id)) }
+  const domainName = selectedClientName || "Selected Domain"
+  const domainEnvironment = currentDomain ? "Production" : "Pending"
+  const domainHost = String(
+    currentDomain?.domain ||
+      currentDomain?.website ||
+      selectedClientName ||
+      selectedClient ||
+      "pending-domain.example",
+  )
 
-  if (loading) return <div className="flex flex-1 items-center justify-center p-8"><IconLoader2 className="size-8 animate-spin text-muted-foreground" /></div>
-  if (error) return <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={loadDomains}>Retry</Button></div>
+  const filteredPolicies = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return attachedPolicies
+    return attachedPolicies.filter((policy) => {
+      return (
+        policy.name.toLowerCase().includes(query) ||
+        policy.description.toLowerCase().includes(query) ||
+        (policy.contextLabel || "").toLowerCase().includes(query)
+      )
+    })
+  }, [attachedPolicies, search])
+
+  const filteredAttachPolicies = useMemo(() => {
+    const query = attachSearch.trim().toLowerCase()
+    if (!query) return attachablePolicies
+    return attachablePolicies.filter((policy) => {
+      return (
+        policy.name.toLowerCase().includes(query) ||
+        policy.description.toLowerCase().includes(query)
+      )
+    })
+  }, [attachSearch, attachablePolicies])
+
+  const policyColumns: ColumnDef<AccessPolicy>[] = [
+    {
+      id: "name",
+      header: "Policy Name",
+      sticky: true,
+      accessor: (policy) => (
+        <button type="button" className="block max-w-56 truncate text-left font-medium">
+          {policy.name}
+        </button>
+      ),
+      minWidth: "220px",
+    },
+    {
+      id: "description",
+      header: "Description",
+      accessor: (policy) => (
+        <span className="block max-w-[16rem] line-clamp-3 whitespace-normal break-words text-muted-foreground">
+          {policy.description}
+        </span>
+      ),
+      minWidth: "180px",
+    },
+    {
+      id: "entities",
+      header: "Entities",
+      accessor: (policy) => (
+        <Badge variant="secondary" className="border-0">
+          {policy.entityCount ?? policy.entities.length} entities
+        </Badge>
+      ),
+      minWidth: "100px",
+    },
+    {
+      id: "modules",
+      header: "Modules",
+      accessor: (policy) => (
+        <Badge variant="secondary" className="border-0">
+          {policy.moduleCount ?? policy.modules.length} modules
+        </Badge>
+      ),
+      minWidth: "100px",
+    },
+    {
+      id: "risk",
+      header: "Risk",
+      accessor: (policy) => <Badge variant="outline">{policy.risk}</Badge>,
+      minWidth: "100px",
+    },
+  ]
+
+  const moduleColumns: ColumnDef<AccessModule>[] = [
+    { id: "name", header: "Module", accessor: "name", sticky: true, minWidth: "180px" },
+    { id: "scope", header: "Scope", accessor: "scope", minWidth: "120px" },
+    {
+      id: "features",
+      header: "Rules",
+      accessor: (module) => (
+        <Badge variant="secondary" className="border-0">
+          {module.features.length} rules
+        </Badge>
+      ),
+      minWidth: "100px",
+    },
+  ]
+
+  const entityColumns: ColumnDef<PolicyEntity>[] = [
+    { id: "name", header: "Entity", accessor: "name", sticky: true, minWidth: "180px" },
+    { id: "type", header: "Type", accessor: "type", minWidth: "120px" },
+    {
+      id: "details",
+      header: "Details",
+      accessor: (entity) => (
+        <span className="block max-w-[16rem] truncate text-muted-foreground">
+          {entity.secondary}
+        </span>
+      ),
+      minWidth: "180px",
+    },
+    { id: "attachedAt", header: "Attached", accessor: "attachedAt", minWidth: "120px" },
+  ]
+
+  const loadAttachedPolicies = async () => {
+    if (!selectedClient) return
+
+    setOverviewLoading(true)
+    setOverviewStatusCode(undefined)
+    setOverviewStatusMessage(undefined)
+
+    try {
+      const raw = await fetchDomainPolicies(selectedClient, 1, 200)
+
+      if (raw === null) {
+        setAttachedPolicies([])
+        setOverviewStatusCode(204)
+        return
+      }
+
+      const payload = normalizeListPayload(raw)
+      setAttachedPolicies(payload.list.map((item) => mapDomainPolicySummary(item)))
+      setOverviewStatusCode(undefined)
+    } catch (error) {
+      setAttachedPolicies([])
+      setOverviewStatusCode(getStatusCodeFromError(error) ?? 500)
+      setOverviewStatusMessage(getErrorDescription(error))
+    } finally {
+      setOverviewLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedClient) {
+      setAttachedPolicies([])
+      setOverviewStatusCode(undefined)
+      setOverviewStatusMessage(undefined)
+      return
+    }
+
+    void loadAttachedPolicies()
+  }, [selectedClient])
+
+  useEffect(() => {
+    if (view !== "attach" || !selectedClient) return
+
+    let cancelled = false
+
+    const loadAttachablePolicies = async () => {
+      setAttachLoading(true)
+      setAttachStatusCode(undefined)
+      setAttachStatusMessage(undefined)
+
+      try {
+        const raw = await fetchPolicies({
+          clientid: selectedClient,
+          count: 200,
+          page: 1,
+          search: attachSearch,
+        })
+
+        if (cancelled) return
+
+        if (raw === null) {
+          setAttachablePolicies([])
+          setAttachStatusCode(204)
+          return
+        }
+
+        const payload = normalizeListPayload(raw)
+        setAttachablePolicies(payload.list.map((item) => mapPolicySummary(item)))
+        setAttachStatusCode(undefined)
+        setSelectedAttachKeys(new Set())
+      } catch (error) {
+        if (cancelled) return
+        setAttachablePolicies([])
+        setAttachStatusCode(getStatusCodeFromError(error) ?? 500)
+        setAttachStatusMessage(getErrorDescription(error))
+      } finally {
+        if (!cancelled) {
+          setAttachLoading(false)
+        }
+      }
+    }
+
+    void loadAttachablePolicies()
+
+    return () => {
+      cancelled = true
+    }
+  }, [attachSearch, selectedClient, view])
+
+  const loadPolicyDetail = async (policyId: string) => {
+    if (!selectedClient) return
+
+    setView("policy-detail")
+    setDetailLoading(true)
+    setDetailStatusCode(undefined)
+    setDetailStatusMessage(undefined)
+
+    try {
+      const raw = await fetchPolicyById(policyId, selectedClient)
+
+      if (raw === null) {
+        setSelectedPolicy(null)
+        setDetailStatusCode(204)
+        return
+      }
+
+      const detail = mapPolicyDetail(raw)
+      if (!detail) {
+        setSelectedPolicy(null)
+        setDetailStatusCode(204)
+        return
+      }
+
+      setSelectedPolicy(detail)
+    } catch (error) {
+      setSelectedPolicy(null)
+      setDetailStatusCode(getStatusCodeFromError(error) ?? 500)
+      setDetailStatusMessage(getErrorDescription(error))
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const handleAttachPolicies = async () => {
+    if (!selectedClient || selectedAttachKeys.size === 0) return
+
+    setSaving(true)
+
+    try {
+      await assignMultiplePolicies({
+        clientid: Number(selectedClient),
+        entityId: selectedClient,
+        type: "DOMAIN",
+        policies: Array.from(selectedAttachKeys),
+      })
+      toast.success("Policies attached to this domain.")
+      setSelectedAttachKeys(new Set())
+      setView("overview")
+      await loadAttachedPolicies()
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to attach policies to this domain right now.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemovePolicies = async () => {
+    if (!selectedClient || selectedPolicyKeys.size === 0) return
+
+    const confirmed = window.confirm("Remove the selected policies from this domain?")
+    if (!confirmed) return
+
+    setSaving(true)
+
+    try {
+      await removeMultiplePolicies({
+        clientid: Number(selectedClient),
+        entityId: selectedClient,
+        type: "DOMAIN",
+        policies: Array.from(selectedPolicyKeys),
+      })
+      toast.success("Policies removed from this domain.")
+      setSelectedPolicyKeys(new Set())
+      await loadAttachedPolicies()
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to remove policies from this domain right now.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!selectedClient) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <StatusState
+          title="Choose a domain first"
+          description="Domain access is scoped to the active domain. Pick a domain from the header to continue."
+        />
+      </div>
+    )
+  }
+
+  if (view === "policy-detail") {
+    if (detailLoading) {
+      return (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <IconLoader2 className="size-8 animate-spin text-muted-foreground" />
+        </div>
+      )
+    }
+
+    if (detailStatusCode || !selectedPolicy) {
+      return (
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+          <div className="space-y-3">
+            <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("overview")}>
+              <IconArrowLeft className="size-4" />
+              Back to Domain Access
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">Policy Detail</h1>
+              <p className="text-sm text-muted-foreground">
+                The selected domain policy could not be loaded right now.
+              </p>
+            </div>
+          </div>
+
+          <StatusState
+            code={detailStatusCode}
+            description={detailStatusMessage}
+            actionSlot={<StatusStateActions secondaryLabel="Back" onSecondaryClick={() => setView("overview")} />}
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("overview")}>
+            <IconArrowLeft className="size-4" />
+            Back to Domain Access
+          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">{selectedPolicy.name}</h1>
+              <p className="text-sm text-muted-foreground">{selectedPolicy.description}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">{selectedPolicy.risk}</Badge>
+              <Badge variant="secondary" className="border-0">
+                {selectedPolicy.moduleCount ?? selectedPolicy.modules.length} modules
+              </Badge>
+              <Badge variant="secondary" className="border-0">
+                {selectedPolicy.entityCount ?? selectedPolicy.entities.length} entities
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Permission Modules</h3>
+            <DataTable<AccessModule>
+              columns={moduleColumns}
+              data={selectedPolicy.modules}
+              rowKey={(module) => module.id}
+              emptyState={
+                <StatusState
+                  compact
+                  title="No modules attached"
+                  description="This policy does not have any module rules yet."
+                />
+              }
+            />
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Attached Entities</h3>
+            <DataTable<PolicyEntity>
+              columns={entityColumns}
+              data={selectedPolicy.entities}
+              rowKey={(entity) => entity.id}
+              emptyState={
+                <StatusState
+                  compact
+                  title="No entities attached"
+                  description="This policy is not currently attached to any users, groups, or domains."
+                />
+              }
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (view === "attach") {
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("overview")}>
+            <IconArrowLeft className="size-4" />
+            Back to Domain Access
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Attach Permission Policies</h1>
+            <p className="text-sm text-muted-foreground">
+              Select policies to attach to <span className="font-medium text-foreground">{domainName}</span>.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Current Domain Coverage</h3>
+            <DataTable<AccessPolicy>
+              columns={policyColumns}
+              data={filteredPolicies}
+              rowKey={(policy) => policy.id}
+              emptyState={
+                <StatusState
+                  compact
+                  title="No attached policies available"
+                  description="Current-domain coverage will render here once policies are attached."
+                />
+              }
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="text-sm font-semibold">Available Policies</h3>
+              <div className="relative w-full sm:w-72">
+                <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search policies…"
+                  value={attachSearch}
+                  onChange={(event) => setAttachSearch(event.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            {attachStatusCode ? (
+              <StatusState code={attachStatusCode} description={attachStatusMessage} />
+            ) : (
+              <DataTable<AccessPolicy>
+                columns={policyColumns}
+                data={filteredAttachPolicies}
+                rowKey={(policy) => policy.id}
+                loading={attachLoading}
+                paginated
+                selectable
+                selectedKeys={selectedAttachKeys}
+                onSelectionChange={setSelectedAttachKeys}
+                emptyState={
+                  <StatusState
+                    compact
+                    title={attachSearch ? "No attachable policies match this search" : "No attachable policies available yet"}
+                    description={
+                      attachSearch
+                        ? "Try another search term."
+                        : "The attach table is ready for live policy data, but nothing is available right now."
+                    }
+                  />
+                }
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t pt-5 sm:flex-row sm:justify-between">
+          <Button variant="outline" onClick={() => setView("overview")}>
+            Cancel
+          </Button>
+          <Button className="melp-radius" disabled={saving || selectedAttachKeys.size === 0} onClick={handleAttachPolicies}>
+            {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : null}
+            Attach Policies
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-y-auto overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div><h1 className="text-2xl font-bold">Domain Access</h1><p className="text-sm text-muted-foreground">Control which groups can access each domain in your organisation</p></div>
-        <Button size="sm" className="melp-radius" onClick={() => setAddOpen(true)}><IconPlus className="size-4 mr-1.5" />Configure Domain</Button>
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Domain Access</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage permission policies attached to the current domain.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={saving || selectedPolicyKeys.size === 0} onClick={handleRemovePolicies}>
+            <IconTrash className="mr-1.5 size-4" />
+            Remove
+          </Button>
+          <Button size="sm" className="melp-radius" onClick={() => setView("attach")}>
+            <IconLinkPlus className="mr-1.5 size-4" />
+            Add Permissions
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Domains</p><p className="text-2xl font-bold mt-1">{domains.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Restricted</p><p className="text-2xl font-bold mt-1 text-warning">{domains.filter((d) => d.accessType === "restricted").length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Blocked</p><p className="text-2xl font-bold mt-1 text-destructive">{domains.filter((d) => d.accessType === "blocked").length}</p></CardContent></Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{domainName}</Badge>
+        <Badge variant="outline">{domainEnvironment}</Badge>
+        <Badge variant="outline">{domainHost}</Badge>
       </div>
 
-      <div className="flex gap-2">
-        <div className="relative flex-1 max-w-sm"><IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" /><Input placeholder="Search domains…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" /></div>
-        <Select value={accessFilter} onValueChange={setAccessFilter}><SelectTrigger className="w-[150px]"><SelectValue placeholder="Access Type" /></SelectTrigger><SelectContent><SelectItem value="all">All Types</SelectItem><SelectItem value="full">Full Access</SelectItem><SelectItem value="restricted">Restricted</SelectItem><SelectItem value="blocked">Blocked</SelectItem></SelectContent></Select>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-72">
+          <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search attached policies…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="flex-1" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="border-0 text-[10px] px-1.5 py-0">
+            {filteredPolicies.length} policies
+          </Badge>
+        </div>
       </div>
 
-      <Card><CardContent className="p-0"><div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b">
-            <th className="text-left font-medium text-muted-foreground p-4">Domain</th>
-            <th className="text-left font-medium text-muted-foreground p-4">Access Type</th>
-            <th className="text-left font-medium text-muted-foreground p-4">Allowed Groups</th>
-            <th className="text-left font-medium text-muted-foreground p-4">Active Users</th>
-            <th className="text-left font-medium text-muted-foreground p-4">Last Modified</th>
-            <th className="text-right font-medium text-muted-foreground p-4">Actions</th>
-          </tr></thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No domains found.</td></tr>
-            ) : filtered.map((d) => {
-              const config = accessTypeConfig[d.accessType]; const Icon = config.icon
-              return (
-                <tr key={d.id} className="border-b last:border-b-0 hover:bg-secondary/30 transition-colors">
-                  <td className="p-4"><div className="flex items-center gap-2"><IconWorld className="size-4 text-muted-foreground" /><span className="font-medium">{d.domain}</span></div></td>
-                  <td className="p-4"><div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${config.bg} ${config.color}`}><Icon className="size-3" />{config.label}</div></td>
-                  <td className="p-4">
-                    {d.allowedGroups.length === 0 ? <span className="text-muted-foreground text-xs">None</span> : (
-                      <div className="flex flex-wrap gap-1">
-                        {d.allowedGroups.slice(0, 2).map((g) => <Badge key={g} variant="secondary" className="text-xs">{g}</Badge>)}
-                        {d.allowedGroups.length > 2 && <Badge variant="secondary" className="text-xs">+{d.allowedGroups.length - 2}</Badge>}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-4"><div className="flex items-center gap-1.5 text-muted-foreground"><IconUsers className="size-3.5" />{d.activeUsers}</div></td>
-                  <td className="p-4 text-muted-foreground">{d.lastModified}</td>
-                  <td className="p-4 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8"><IconDots className="size-4" /></Button></DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem><IconPencil className="size-4 mr-2" /> Edit Access Rules</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(d.id)}><IconTrash className="size-4 mr-2" /> Remove</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div></CardContent></Card>
-
-      <AddDomainAccessDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAdd} />
+      {overviewStatusCode ? (
+        <StatusState
+          code={overviewStatusCode}
+          title={overviewStatusCode === 204 ? "No domain policies returned yet" : undefined}
+          description={overviewStatusCode === 204 ? undefined : overviewStatusMessage}
+          actionSlot={<StatusStateActions primaryLabel="Open Attach Flow" onPrimaryClick={() => setView("attach")} />}
+        />
+      ) : (
+        <DataTable<AccessPolicy>
+          columns={policyColumns}
+          data={filteredPolicies}
+          rowKey={(policy) => policy.id}
+          onRowClick={(policy) => void loadPolicyDetail(policy.id)}
+          loading={overviewLoading}
+          paginated
+          selectable
+          selectedKeys={selectedPolicyKeys}
+          onSelectionChange={setSelectedPolicyKeys}
+          emptyState={
+            <StatusState
+              compact
+              title={search ? "No attached policies match this search" : "No policies attached to this domain"}
+              description={
+                search
+                  ? "Try another keyword or clear the search."
+                  : "Attach a policy to this domain to begin managing domain-level access."
+              }
+            />
+          }
+        />
+      )}
     </div>
   )
 }

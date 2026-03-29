@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { IconUserPlus } from "@tabler/icons-react"
+import { useMemo, useState } from "react"
+import { IconDotsVertical, IconPencil, IconPlus, IconTrash, IconUserPlus } from "@tabler/icons-react"
 import {
   Dialog,
   DialogContent,
@@ -12,33 +12,25 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { DEPARTMENTS, LOCATIONS, DESIGNATIONS, type User, type UserStatus } from "@/components/users/users-data"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
-type FormData = {
+export type AddUserDraft = {
+  id: string
   name: string
   email: string
-  department: string
-  designation: string
-  location: string
-  deactivateDate: string
-  status: UserStatus
+  phone: string
 }
 
-const defaultForm: FormData = {
+const createRow = (): AddUserDraft => ({
+  id: `row-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   name: "",
   email: "",
-  department: "",
-  designation: "",
-  location: "",
-  deactivateDate: "",
-  status: "active",
-}
+  phone: "",
+})
 
 export function AddUserDialog({
   open,
@@ -47,152 +39,189 @@ export function AddUserDialog({
 }: {
   open: boolean
   onClose: () => void
-  onAdd: (user: Omit<User, "id" | "joinedAt">) => void
+  onAdd: (users: AddUserDraft[]) => Promise<void>
 }) {
-  const [form, setForm] = useState<FormData>(defaultForm)
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({})
+  const [rows, setRows] = useState<AddUserDraft[]>([createRow()])
+  const [errors, setErrors] = useState<Record<string, Partial<Record<"name" | "email" | "phone", string>>>>({})
+  const [submitError, setSubmitError] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
-  function validate() {
-    const errs: Partial<Record<keyof FormData, string>> = {}
-    if (!form.name.trim())        errs.name        = "Name is required"
-    if (!form.email.trim())       errs.email       = "Email is required"
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Invalid email"
-    if (!form.department)         errs.department  = "Department is required"
-    if (!form.designation.trim()) errs.designation = "Designation is required"
-    if (!form.location)           errs.location    = "Location is required"
-    return errs
+  const rowCount = rows.length
+
+  const canSubmit = useMemo(
+    () => rows.some((r) => r.name.trim() || r.email.trim() || r.phone.trim()),
+    [rows],
+  )
+
+  function setRowValue(id: string, key: keyof AddUserDraft, value: string) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [key]: value } : r)))
   }
 
-  function handleSubmit() {
-    const errs = validate()
-    if (Object.keys(errs).length > 0) { setErrors(errs); return }
-    onAdd({
-      name: form.name,
-      email: form.email,
-      department: form.department,
-      designation: form.designation,
-      location: form.location,
-      deactivateDate: form.deactivateDate || undefined,
-      status: form.status,
+  function handleAddRow() {
+    setRows((prev) => [...prev, createRow()])
+  }
+
+  function handleDeleteRow(id: string) {
+    setRows((prev) => (prev.length <= 1 ? [createRow()] : prev.filter((r) => r.id !== id)))
+    setErrors((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
     })
-    setForm(defaultForm)
-    setErrors({})
-    onClose()
+  }
+
+  function validateRows() {
+    const nextErrors: Record<string, Partial<Record<"name" | "email" | "phone", string>>> = {}
+    let hasError = false
+
+    for (const row of rows) {
+      const rowHasData = row.name.trim() || row.email.trim() || row.phone.trim()
+      if (!rowHasData) continue
+
+      const rowErrors: Partial<Record<"name" | "email" | "phone", string>> = {}
+      if (!row.name.trim()) rowErrors.name = "Full name is required"
+      if (!row.email.trim()) rowErrors.email = "Email is required"
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) rowErrors.email = "Invalid email"
+      if (!row.phone.trim()) rowErrors.phone = "Phone number is required"
+      else if (!/^[+()\-\s0-9]{6,20}$/.test(row.phone.trim())) rowErrors.phone = "Invalid phone number"
+
+      if (Object.keys(rowErrors).length) {
+        nextErrors[row.id] = rowErrors
+        hasError = true
+      }
+    }
+
+    setErrors(nextErrors)
+    return !hasError
+  }
+
+  async function handleSubmit() {
+    if (!validateRows()) return
+
+    const payload = rows.filter((r) => r.name.trim() || r.email.trim() || r.phone.trim())
+    if (!payload.length) return
+
+    try {
+      setSubmitting(true)
+      setSubmitError("")
+      await onAdd(payload)
+      setRows([createRow()])
+      setErrors({})
+      onClose()
+    } catch (err) {
+      setSubmitError((err as Error)?.message || "Unable to add users")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   function handleClose() {
-    setForm(defaultForm)
+    setRows([createRow()])
     setErrors({})
+    setSubmitError("")
     onClose()
   }
 
   return (
     <Dialog open={open} onOpenChange={(v: boolean) => !v && handleClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconUserPlus className="size-5" />
-            Add New User
+            Add Users
           </DialogTitle>
           <DialogDescription>
-            Fill in the details below to add a new user to your organization.
+            Add one or more users with full name, email and phone number.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="add-name">Full Name <span className="text-destructive">*</span></Label>
-            <Input
-              id="add-name"
-              placeholder="e.g. Aarav Sharma"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            />
-            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
-          </div>
+        <div className="max-h-[60vh] overflow-y-auto pr-1">
+          <div className="grid gap-3 py-2">
+            {rows.map((row, index) => (
+              <div key={row.id} className="rounded-lg border p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-medium">User #{index + 1}</p>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="size-8">
+                        <IconDotsVertical className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          const el = document.getElementById(`add-user-name-${row.id}`)
+                          el?.focus()
+                        }}
+                      >
+                        <IconPencil className="mr-2 size-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => handleDeleteRow(row.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <IconTrash className="mr-2 size-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
 
-          <div className="grid gap-1.5">
-            <Label htmlFor="add-email">Email Address <span className="text-destructive">*</span></Label>
-            <Input
-              id="add-email"
-              type="email"
-              placeholder="user@company.com"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-            />
-            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Department <span className="text-destructive">*</span></Label>
-              <Select value={form.department} onValueChange={(v) => setForm((f) => ({ ...f, department: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEPARTMENTS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {errors.department && <p className="text-xs text-destructive">{errors.department}</p>}
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>Location <span className="text-destructive">*</span></Label>
-              <Select value={form.location} onValueChange={(v) => setForm((f) => ({ ...f, location: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {errors.location && <p className="text-xs text-destructive">{errors.location}</p>}
-            </div>
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label>Designation <span className="text-destructive">*</span></Label>
-            <Select value={form.designation} onValueChange={(v) => setForm((f) => ({ ...f, designation: v }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select designation" />
-              </SelectTrigger>
-              <SelectContent>
-                {DESIGNATIONS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {errors.designation && <p className="text-xs text-destructive">{errors.designation}</p>}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as UserStatus }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="add-deactivate-date">Deactivate Date</Label>
-              <Input
-                id="add-deactivate-date"
-                type="date"
-                value={form.deactivateDate}
-                onChange={(e) => setForm((f) => ({ ...f, deactivateDate: e.target.value }))}
-              />
-            </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`add-user-name-${row.id}`}>Full Name</Label>
+                    <Input
+                      id={`add-user-name-${row.id}`}
+                      placeholder="e.g. James Doe"
+                      value={row.name}
+                      onChange={(e) => setRowValue(row.id, "name", e.target.value)}
+                    />
+                    {errors[row.id]?.name && <p className="text-xs text-destructive">{errors[row.id]?.name}</p>}
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`add-user-email-${row.id}`}>Email</Label>
+                    <Input
+                      id={`add-user-email-${row.id}`}
+                      type="email"
+                      placeholder="user@company.com"
+                      value={row.email}
+                      onChange={(e) => setRowValue(row.id, "email", e.target.value)}
+                    />
+                    {errors[row.id]?.email && <p className="text-xs text-destructive">{errors[row.id]?.email}</p>}
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`add-user-phone-${row.id}`}>Phone Number</Label>
+                    <Input
+                      id={`add-user-phone-${row.id}`}
+                      type="tel"
+                      placeholder="+1 555 000 0001"
+                      value={row.phone}
+                      onChange={(e) => setRowValue(row.id, "phone", e.target.value)}
+                    />
+                    {errors[row.id]?.phone && <p className="text-xs text-destructive">{errors[row.id]?.phone}</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">{rowCount} row{rowCount > 1 ? "s" : ""} added</p>
+          <Button variant="outline" size="sm" onClick={handleAddRow} disabled={submitting}>
+            <IconPlus className="mr-1.5 size-4" />
+            Add Row
+          </Button>
+        </div>
+
+        {submitError && <p className="text-xs text-destructive">{submitError}</p>}
+
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} className="melp-radius">Add User</Button>
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>Cancel User</Button>
+          <Button onClick={() => void handleSubmit()} className="melp-radius" disabled={submitting || !canSubmit}>
+            {submitting ? "Adding..." : "Add User"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

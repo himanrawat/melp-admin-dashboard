@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
+import { Toaster } from "sonner"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/layout/site-header"
@@ -17,9 +18,7 @@ import { GroupsPage } from "@/pages/GroupsPage"
 import { AccessGroupsPage } from "@/pages/AccessGroupsPage"
 import { AccessPoliciesPage } from "@/pages/AccessPoliciesPage"
 import { AccessDomainsPage } from "@/pages/AccessDomainsPage"
-import { RegistrationAddPage } from "@/pages/RegistrationAddPage"
-import { RegistrationBulkPage } from "@/pages/RegistrationBulkPage"
-import { RegistrationListPage } from "@/pages/RegistrationListPage"
+import { AuditLogsPage } from "@/pages/AuditLogsPage"
 import { DomainsPage } from "@/pages/DomainsPage"
 import { PaymentsPage } from "@/pages/PaymentsPage"
 import { SettingsPage } from "@/pages/SettingsPage"
@@ -89,11 +88,8 @@ function AppLayout() {
           <Route path="/access/policies" element={<AccessPoliciesPage />} />
           <Route path="/access/domains" element={<AccessDomainsPage />} />
 
-          {/* Registration */}
-          <Route path="/registration" element={<Navigate to="/registration/add" replace />} />
-          <Route path="/registration/add" element={<RegistrationAddPage />} />
-          <Route path="/registration/bulk" element={<RegistrationBulkPage />} />
-          <Route path="/registration/list" element={<RegistrationListPage />} />
+          {/* Audit Logs */}
+          <Route path="/audit-logs" element={<AuditLogsPage />} />
 
           {/* Domains */}
           <Route path="/domains" element={<DomainsPage />} />
@@ -152,6 +148,7 @@ function AppLayout() {
 function App() {
   return (
     <BrowserRouter>
+      <Toaster richColors position="top-right" />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/*" element={
@@ -165,4 +162,3 @@ function App() {
 }
 
 export default App
-

@@ -1,6 +1,21 @@
 import { loadStoredAuth, refreshJwtToken, updateStoredJwt } from "./auth";
 import type { AuthState } from "@/types";
 
+export class ApiRequestError extends Error {
+	status: number;
+	body?: unknown;
+
+	constructor(
+		message: string,
+		{ status, body }: { status: number; body?: unknown },
+	) {
+		super(message);
+		this.name = "ApiRequestError";
+		this.status = status;
+		this.body = body;
+	}
+}
+
 const API_BASE = (
 	import.meta.env.VITE_MELP_API_BASE || "/MelpService/"
 ).replace(/\/+$/, "");
@@ -220,12 +235,21 @@ const makeRequest = async <T = unknown>(
 	}
 
 	if (res.status === 429) {
-		throw new Error("Too many requests. Please try again later.");
+		throw new ApiRequestError("Too many requests. Please try again later.", {
+			status: 429,
+		});
 	}
 
 	if (!res.ok) {
-		const errorText = await res.text().catch(() => "");
-		throw new Error(`Request failed (${res.status}): ${errorText}`);
+		const body = await parseJsonOrNull(res);
+		const fallbackText =
+			typeof body === "string"
+				? body
+				: JSON.stringify(body || {});
+		throw new ApiRequestError(
+			`Request failed (${res.status}): ${fallbackText}`,
+			{ status: res.status, body },
+		);
 	}
 
 	return parseJsonOrNull(res) as T;

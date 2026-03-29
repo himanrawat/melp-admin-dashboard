@@ -231,4 +231,21 @@
     border-radius: var(--radius-2xl);
     border-top-left-radius: 0;
   }
+
+  /* Sticky column shadow — only visible when the table is scrolled */
+  [data-scrolled] [data-last-sticky] {
+    box-shadow: 4px 0 6px -2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Inactive / archived row styling */
+  tr.row-inactive > td {
+    background-color: color-mix(in srgb, var(--muted) 50%, transparent) !important;
+    color: var(--muted-foreground);
+    opacity: 0.75;
+  }
+  tr.row-inactive:hover > td {
+    background-color: var(--muted) !important;
+    opacity: 0.85;
+  }
+
 }

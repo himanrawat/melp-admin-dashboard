@@ -6,10 +6,10 @@ import {
   IconSettings,
   IconShieldLock,
   IconWorld,
-  IconUserPlus,
   IconCreditCard,
   IconChevronRight,
   IconFolder,
+  IconHistory,
 } from "@tabler/icons-react"
 
 import { Logo } from "@/assets/logo"
@@ -70,19 +70,14 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    title: "Registration",
-    url: "/registration",
-    icon: IconUserPlus,
-    children: [
-      { title: "Add User", url: "/registration/add" },
-      { title: "Bulk Upload", url: "/registration/bulk" },
-      { title: "User List", url: "/registration/list" },
-    ],
-  },
-  {
     title: "Domains",
     url: "/domains",
     icon: IconWorld,
+  },
+  {
+    title: "Audit Logs",
+    url: "/audit-logs",
+    icon: IconHistory,
   },
   {
     title: "Payments",

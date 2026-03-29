@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +42,8 @@ export type ColumnDef<T> = {
   align?: "left" | "center" | "right";
   /** Additional class names applied to every body cell in this column. */
   cellClassName?: string;
+  /** Pin this column to the left when the table scrolls horizontally. */
+  sticky?: boolean;
 };
 
 /** Props accepted by `<DataTable />`. */
@@ -73,6 +76,16 @@ export type DataTableProps<T> = {
   pageSize?: number;
   /** Available page-size options shown in the selector. @default [10, 20, 30, 50] */
   pageSizeOptions?: number[];
+  /** Show checkboxes for row selection. */
+  selectable?: boolean;
+  /** Currently selected row keys. */
+  selectedKeys?: Set<string>;
+  /** Called when selection changes. */
+  onSelectionChange?: (keys: Set<string>) => void;
+  /** Optional per-row class name callback (e.g. for inactive/disabled styling). */
+  rowClassName?: (row: T) => string | undefined;
+  /** Max height for the scrollable table body. Header stays fixed. e.g. `"400px"` */
+  maxBodyHeight?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +101,7 @@ const ALIGN_CLASS = {
 const CELL_PADDING_DEFAULT = "px-4 py-3";
 const CELL_PADDING_COMPACT = "px-3 py-1.5";
 const SKELETON_ROWS_DEFAULT = 5;
+const CHECKBOX_COL_WIDTH = 40; // matches w-10
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -103,6 +117,42 @@ function columnMinWidth<T>(col: ColumnDef<T>): CSSProperties | undefined {
   return { minWidth: col.minWidth };
 }
 
+/** Shared sticky base styles with an opaque background so content doesn't bleed through. */
+function stickyBase(left: number, isLastSticky: boolean): CSSProperties {
+  return {
+    position: "sticky",
+    left,
+    zIndex: 10,
+    ...(isLastSticky ? { boxShadow: "4px 0 6px -2px rgba(0,0,0,0.1)" } : {}),
+  };
+}
+
+/** Returns sticky positioning styles for a cell, or undefined if not sticky. */
+function stickyStyle<T>(
+  col: ColumnDef<T>,
+  index: number,
+  columns: ColumnDef<T>[],
+  selectable?: boolean,
+): CSSProperties | undefined {
+  if (!col.sticky) return undefined;
+  let left = selectable ? CHECKBOX_COL_WIDTH : 0;
+  for (let i = 0; i < index; i++) {
+    if (columns[i].sticky) {
+      left += Number.parseInt(columns[i].minWidth || "0", 10);
+    }
+  }
+  const isLastSticky = !columns.slice(index + 1).some((c) => c.sticky);
+  return stickyBase(left, isLastSticky);
+}
+
+/** Returns sticky styles for the checkbox column when any column is sticky. */
+function checkboxStickyStyle<T>(columns: ColumnDef<T>[]): CSSProperties | undefined {
+  const hasSticky = columns.some((c) => c.sticky);
+  if (!hasSticky) return undefined;
+  const hasMoreSticky = columns.some((c) => c.sticky);
+  return stickyBase(0, !hasMoreSticky);
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components (not exported — internal to DataTable)
 // ---------------------------------------------------------------------------
@@ -110,22 +160,45 @@ function columnMinWidth<T>(col: ColumnDef<T>): CSSProperties | undefined {
 function DataTableHeader<T>({
   columns,
   cellPadding,
+  selectable,
+  allSelected,
+  someSelected,
+  onToggleAll,
+  stickyHeader,
 }: Readonly<{
   columns: ColumnDef<T>[];
   cellPadding: string;
+  selectable?: boolean;
+  allSelected?: boolean;
+  someSelected?: boolean;
+  onToggleAll?: () => void;
+  stickyHeader?: boolean;
 }>) {
   return (
-    <TableHeader>
-      <TableRow className="border-b border-border hover:bg-transparent">
-        {columns.map((col) => (
+    <TableHeader className={stickyHeader ? "sticky top-0 z-20" : undefined}>
+      <TableRow className="border-b border-border bg-muted hover:bg-muted">
+        {selectable && (
+          <TableHead
+            className={cn("w-10", cellPadding)}
+            style={checkboxStickyStyle(columns)}
+          >
+            <Checkbox
+              checked={allSelected ? true : someSelected ? "indeterminate" : false}
+              onCheckedChange={() => onToggleAll?.()}
+              aria-label="Select all"
+            />
+          </TableHead>
+        )}
+        {columns.map((col, colIdx) => (
           <TableHead
             key={col.id}
             className={cn(
               "text-xs font-medium uppercase tracking-wider text-muted-foreground",
               cellPadding,
               col.align && ALIGN_CLASS[col.align],
+              col.sticky && "bg-muted",
             )}
-            style={columnMinWidth(col)}
+            style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
           >
             {col.header}
           </TableHead>
@@ -139,20 +212,30 @@ function DataTableLoadingBody<T>({
   columns,
   rows,
   cellPadding,
+  selectable,
 }: Readonly<{
   columns: ColumnDef<T>[];
   rows: number;
   cellPadding: string;
+  selectable?: boolean;
 }>) {
   return (
     <TableBody>
       {Array.from({ length: rows }, (_, i) => (
         <TableRow key={i} className="border-b border-border hover:bg-transparent">
-          {columns.map((col) => (
+          {selectable && (
+            <TableCell
+              className={cn("w-10 bg-card", cellPadding)}
+              style={checkboxStickyStyle(columns)}
+            >
+              <Skeleton className="size-4" />
+            </TableCell>
+          )}
+          {columns.map((col, colIdx) => (
             <TableCell
               key={col.id}
-              className={cn(cellPadding)}
-              style={columnMinWidth(col)}
+              className={cn("bg-card", cellPadding)}
+              style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
             >
               <Skeleton className="h-4 w-3/4" />
             </TableCell>
@@ -191,6 +274,10 @@ function DataTableDataBody<T>({
   onRowClick,
   striped,
   cellPadding,
+  selectable,
+  selectedKeys,
+  onToggleRow,
+  rowClassName,
 }: Readonly<{
   columns: ColumnDef<T>[];
   data: T[];
@@ -198,6 +285,10 @@ function DataTableDataBody<T>({
   onRowClick?: (row: T) => void;
   striped: boolean;
   cellPadding: string;
+  selectable?: boolean;
+  selectedKeys?: Set<string>;
+  onToggleRow?: (key: string) => void;
+  rowClassName?: (row: T) => string | undefined;
 }>) {
   const isClickable = !!onRowClick;
 
@@ -215,6 +306,7 @@ function DataTableDataBody<T>({
     <TableBody>
       {data.map((row, idx) => {
         const key = rowKey ? rowKey(row) : String(idx);
+        const extraRowClass = rowClassName?.(row);
 
         return (
           <TableRow
@@ -225,23 +317,36 @@ function DataTableDataBody<T>({
             onClick={isClickable ? () => onRowClick(row) : undefined}
             onKeyDown={isClickable ? handleKeyDown(row) : undefined}
             className={cn(
-              "border-b border-border transition-colors",
+              "group border-b border-border transition-colors",
               isClickable
-                ? "cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                : "hover:bg-muted/30",
+                ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                : "",
               striped && idx % 2 === 1 && "bg-muted/20",
+              extraRowClass,
             )}
           >
-            {columns.map((col) => (
+            {selectable && (
+              <TableCell
+                className={cn("w-10 bg-card group-hover:bg-muted transition-colors", cellPadding)}
+                style={checkboxStickyStyle(columns)}
+              >
+                <Checkbox
+                  checked={selectedKeys?.has(key) ?? false}
+                  onCheckedChange={() => onToggleRow?.(key)}
+                  aria-label={`Select row ${key}`}
+                />
+              </TableCell>
+            )}
+            {columns.map((col, colIdx) => (
               <TableCell
                 key={col.id}
                 className={cn(
-                  "text-sm",
+                  "text-sm bg-card group-hover:bg-muted transition-colors",
                   cellPadding,
                   col.align && ALIGN_CLASS[col.align],
                   col.cellClassName,
                 )}
-                style={columnMinWidth(col)}
+                style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
               >
                 {resolveCell(row, col.accessor)}
               </TableCell>
@@ -408,6 +513,11 @@ export function DataTable<T>({
   paginated = false,
   pageSize: initialPageSize = 10,
   pageSizeOptions = PAGE_SIZE_OPTIONS_DEFAULT,
+  selectable = false,
+  selectedKeys,
+  onSelectionChange,
+  rowClassName,
+  maxBodyHeight,
 }: Readonly<DataTableProps<T>>) {
   const cellPadding = compact ? CELL_PADDING_COMPACT : CELL_PADDING_DEFAULT;
 
@@ -432,6 +542,33 @@ export function DataTable<T>({
     setCurrentPage(0);
   };
 
+  // Selection helpers
+  const allKeys = useMemo(() => {
+    if (!selectable || !rowKey) return new Set<string>();
+    return new Set(data.map((row, idx) => rowKey ? rowKey(row) : String(idx)));
+  }, [selectable, data, rowKey]);
+
+  const allSelected = selectable && selectedKeys != null && allKeys.size > 0 && allKeys.size === selectedKeys.size;
+  const someSelected = selectable && selectedKeys != null && selectedKeys.size > 0 && !allSelected;
+
+  const handleToggleAll = useCallback(() => {
+    if (!onSelectionChange) return;
+    if (allSelected) {
+      onSelectionChange(new Set());
+    } else {
+      onSelectionChange(new Set(allKeys));
+    }
+  }, [allSelected, allKeys, onSelectionChange]);
+
+  const handleToggleRow = useCallback((key: string) => {
+    if (!onSelectionChange || !selectedKeys) return;
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onSelectionChange(next);
+  }, [selectedKeys, onSelectionChange]);
+
+  const colSpan = columns.length + (selectable ? 1 : 0);
+
   let body: ReactNode;
   if (loading) {
     body = (
@@ -439,11 +576,12 @@ export function DataTable<T>({
         columns={columns}
         rows={loadingRows}
         cellPadding={cellPadding}
+        selectable={selectable}
       />
     );
   } else if (isEmpty) {
     body = (
-      <DataTableEmptyBody colSpan={columns.length}>
+      <DataTableEmptyBody colSpan={colSpan}>
         {emptyState}
       </DataTableEmptyBody>
     );
@@ -456,6 +594,10 @@ export function DataTable<T>({
         onRowClick={onRowClick}
         striped={striped}
         cellPadding={cellPadding}
+        selectable={selectable}
+        selectedKeys={selectedKeys}
+        onToggleRow={handleToggleRow}
+        rowClassName={rowClassName}
       />
     );
   }
@@ -465,24 +607,35 @@ export function DataTable<T>({
       data-slot="data-table"
       className={cn("w-full max-w-full min-w-0", className)}
     >
-      <div className="w-full max-w-full overflow-x-auto rounded border border-border bg-card">
+      <div
+        className="w-full max-w-full overflow-x-auto rounded border border-border bg-card"
+        style={maxBodyHeight ? { maxHeight: maxBodyHeight, overflowY: "auto" } : undefined}
+      >
         <Table>
           {caption && <TableCaption>{caption}</TableCaption>}
-          <DataTableHeader columns={columns} cellPadding={cellPadding} />
+          <DataTableHeader
+            columns={columns}
+            cellPadding={cellPadding}
+            selectable={selectable}
+            allSelected={allSelected}
+            someSelected={someSelected}
+            onToggleAll={handleToggleAll}
+            stickyHeader={!!maxBodyHeight}
+          />
           {body}
         </Table>
-        {paginated && !loading && !isEmpty && (
-          <DataTablePagination
-            page={safeCurrentPage}
-            pageCount={pageCount}
-            pageSize={pageSize}
-            pageSizeOptions={pageSizeOptions}
-            totalRows={data.length}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={handlePageSizeChange}
-          />
-        )}
       </div>
+      {paginated && !loading && !isEmpty && (
+        <DataTablePagination
+          page={safeCurrentPage}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          pageSizeOptions={pageSizeOptions}
+          totalRows={data.length}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={handlePageSizeChange}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import {
-  IconPlus, IconSearch, IconDots, IconWorld, IconShieldCheck, IconAlertTriangle, IconX, IconCopy, IconRefresh, IconTrash, IconClock, IconLoader2,
+  IconPlus, IconSearch, IconDots, IconWorld, IconShieldCheck, IconAlertTriangle, IconX, IconCopy, IconRefresh, IconTrash, IconClock, IconLoader2, IconFilter,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from "@/components/ui/popover"
 import { fetchDomains } from "@/api/admin"
 import { useAuth } from "@/context/auth-context"
 
@@ -73,6 +75,7 @@ export function DomainsPage() {
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [draftStatus, setDraftStatus] = useState("all")
   const [addOpen, setAddOpen] = useState(false)
 
   const loadDomains = useCallback(async () => {
@@ -137,13 +140,49 @@ export function DomainsPage() {
         <Card><CardContent className="p-4 flex items-center gap-3"><div className="flex items-center justify-center size-9 rounded-lg bg-secondary shrink-0"><IconWorld className="size-4 text-muted-foreground" /></div><div><p className="text-xs text-muted-foreground">Total Users</p><p className="text-xl font-bold">{domains.reduce((a, d) => a + d.users, 0)}</p></div></CardContent></Card>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm"><IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" /><Input placeholder="Search domains…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" /></div>
-        <div className="flex gap-1.5">{(["all", "verified", "pending", "failed"] as const).map((s) => (
-          <Button key={s} variant={statusFilter === s ? "default" : "outline"} size="sm" className={statusFilter === s ? "melp-radius" : ""} onClick={() => setStatusFilter(s)}>
-            {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
-          </Button>
-        ))}</div>
+        <Popover onOpenChange={(open) => { if (open) setDraftStatus(statusFilter) }}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <IconFilter className="size-4" />
+              Filter
+              {statusFilter !== "all" && (
+                <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">1</Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80 p-0">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h4 className="text-sm font-semibold">Filters</h4>
+              {statusFilter !== "all" && (
+                <button onClick={() => { setDraftStatus("all"); setStatusFilter("all") }} className="text-xs text-muted-foreground hover:text-foreground">Clear all</button>
+              )}
+            </div>
+            <div className="grid gap-3 p-4">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={draftStatus} onValueChange={(v) => setDraftStatus(v)}>
+                  <SelectTrigger size="sm" className="w-full"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="verified">Verified</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <PopoverClose asChild>
+                <Button variant="outline" size="sm" onClick={() => { setDraftStatus("all"); setStatusFilter("all") }}>Reset</Button>
+              </PopoverClose>
+              <PopoverClose asChild>
+                <Button size="sm" onClick={() => setStatusFilter(draftStatus)}>Apply Filters</Button>
+              </PopoverClose>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="flex flex-col gap-3">

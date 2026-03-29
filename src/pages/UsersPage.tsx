@@ -1,17 +1,18 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { IconUserPlus, IconUpload, IconLoader2 } from "@tabler/icons-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { type User } from "@/components/users/users-data"
-import { UsersStatCards } from "@/components/users/users-stat-cards"
-import { UsersToolbar } from "@/components/users/users-toolbar"
+import { UsersToolbar, type UserFilters, EMPTY_FILTERS } from "@/components/users/users-toolbar"
 import { UsersDataTable, DEFAULT_VISIBLE_COLS, type ColKey } from "@/components/users/users-data-table"
-import { AddUserDialog } from "@/components/users/add-user-dialog"
+import { AddUserInline, type AddUserDraft } from "@/components/users/add-user-inline"
 import { InviteDialog } from "@/components/users/user-confirm-dialogs"
-import { fetchUsers, fetchAdmins, manualInviteUsers } from "@/api/admin"
+import { fetchUsers, fetchAdmins, manualInviteUsers, bulkInviteUsers } from "@/api/admin"
 import { useAuth } from "@/context/auth-context"
+
+// ── Main page ─────────────────────────────────────────────
 
 export function UsersPage() {
   const { selectedClient } = useAuth()
@@ -29,13 +30,15 @@ export function UsersPage() {
   // ── UI state ───────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("all")
   const [search, setSearch] = useState("")
-  const [departmentFilter, setDepartmentFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [filters, setFilters] = useState<UserFilters>(EMPTY_FILTERS)
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(DEFAULT_VISIBLE_COLS))
-
-  // ── Dialog state ───────────────────────────────────────
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [addOpen, setAddOpen] = useState(false)
+
+  // ── Dialog / upload state ─────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [bulkUploading, setBulkUploading] = useState(false)
+  const bulkInputRef = useRef<HTMLInputElement>(null)
 
   const MIN_COLS = 4
 
@@ -223,28 +226,57 @@ export function UsersPage() {
       const q = search.toLowerCase()
       list = list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
     }
-    if (departmentFilter !== "all") list = list.filter((u) => u.department === departmentFilter)
-    if (tab === "all" && statusFilter !== "all") {
-        list = list.filter((u) => u.status === statusFilter)
+    if (filters.department) list = list.filter((u) => u.department === filters.department)
+    if (filters.designation) list = list.filter((u) => u.designation === filters.designation)
+    if (filters.location) list = list.filter((u) => u.location === filters.location)
+    if (filters.joiningDateRange?.from) {
+      list = list.filter((u) => {
+        if (!u.joinedAt) return false
+        const d = new Date(u.joinedAt)
+        if (filters.joiningDateRange!.from && d < filters.joiningDateRange!.from) return false
+        if (filters.joiningDateRange!.to && d > filters.joiningDateRange!.to) return false
+        return true
+      })
+    }
+    if (filters.deactiveDateRange?.from) {
+      list = list.filter((u) => {
+        if (!u.deactivateDate) return false
+        const d = new Date(u.deactivateDate)
+        if (filters.deactiveDateRange!.from && d < filters.deactiveDateRange!.from) return false
+        if (filters.deactiveDateRange!.to && d > filters.deactiveDateRange!.to) return false
+        return true
+      })
     }
     return list
   }
 
   const users = [...usersByCategory.all]
   const departments = [...new Set(users.map((u) => u.department))].sort()
+  const designations = [...new Set(users.map((u) => u.designation).filter(Boolean))].sort()
+  const locations = [...new Set(users.map((u) => u.location).filter(Boolean))].sort()
 
   // ── Mutations ──────────────────────────────────────────
-  async function handleAdd(data: Omit<User, "id" | "joinedAt">) {
+  async function handleAdd(rows: AddUserDraft[]): Promise<void> {
+    const inviteUsers = rows
+      .filter((r) => r.name.trim() || r.email.trim() || r.phone.trim())
+      .map((r) => {
+        const [firstName, ...rest] = r.name.trim().split(/\s+/)
+        const lastName = rest.join(" ")
+        return {
+          email: r.email.trim(),
+          name: r.name.trim(),
+          firstName: firstName || r.name.trim(),
+          lastName,
+          phone: r.phone.trim(),
+        }
+      })
+
     try {
-      await manualInviteUsers([{ email: data.email, name: data.name, department: data.department }])
-      loadUsers()
-    } catch {
-      // Fallback to local addition
-      const newUser: User = { ...data, id: String(Date.now()), joinedAt: new Date().toISOString().split("T")[0] }
-      setUsersByCategory((prev) => ({
-        ...prev,
-        all: [newUser, ...prev.all],
-      }))
+      await manualInviteUsers(inviteUsers)
+      await loadUsers()
+      alert(`${inviteUsers.length} user${inviteUsers.length > 1 ? "s" : ""} added successfully.`)
+    } catch (err) {
+      throw new Error((err as Error)?.message || "Failed to add user")
     }
   }
 
@@ -281,21 +313,97 @@ export function UsersPage() {
     }))
   }
 
+  function handleExportUsersData() {
+    const rows = getFilteredUsers(activeTab)
+    if (!rows.length) return
+
+    const headers = [
+      "Name",
+      "Email",
+      "Department",
+      "Designation",
+      "Location",
+      "Status",
+      "Joined Date",
+      "Active/Deactive Date",
+      "Admin",
+    ]
+
+    const escapeCsv = (value: string) => `"${value.replace(/"/g, "\"\"")}"`
+    const lines = [
+      headers.join(","),
+      ...rows.map((u) => [
+        escapeCsv(u.name || ""),
+        escapeCsv(u.email || ""),
+        escapeCsv(u.department || ""),
+        escapeCsv(u.designation || ""),
+        escapeCsv(u.location || ""),
+        escapeCsv(u.status || ""),
+        escapeCsv(u.joinedAt || ""),
+        escapeCsv(u.deactivateDate || ""),
+        escapeCsv(u.isAdmin ? "Yes" : "No"),
+      ].join(",")),
+    ]
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    const stamp = new Date().toISOString().slice(0, 10)
+    anchor.href = url
+    anchor.download = `melp-users-${activeTab}-${stamp}.csv`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleBulkFileSelected(file: File) {
+    const allowedTypes = new Set([
+      "text/csv",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+    ])
+    const ext = file.name.toLowerCase()
+    const hasAllowedExt = ext.endsWith(".csv") || ext.endsWith(".xlsx") || ext.endsWith(".xls")
+    const hasAllowedType = allowedTypes.has(file.type)
+
+    if (!(hasAllowedExt || hasAllowedType)) {
+      alert("Please upload CSV or Excel file only")
+      if (bulkInputRef.current) bulkInputRef.current.value = ""
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Maximum upload file size is 5 MB")
+      if (bulkInputRef.current) bulkInputRef.current.value = ""
+      return
+    }
+
+    try {
+      setBulkUploading(true)
+      await bulkInviteUsers(file, true)
+      await loadUsers()
+      alert("File uploaded successfully.")
+    } catch (err) {
+      const message = (err as Error)?.message || "Bulk upload failed"
+      alert(message)
+    } finally {
+      setBulkUploading(false)
+      if (bulkInputRef.current) bulkInputRef.current.value = ""
+    }
+  }
+
   // ── Shared table props ─────────────────────────────────
   const tableProps = {
     visibleCols,
+    loading,
     onToggleStatus: handleToggleStatus,
     onEdited: handleEdit,
     onAdd: () => setAddOpen(true),
     onInvite: () => setInviteOpen(true),
-  }
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <IconLoader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    )
+    selectable: true,
+    selectedKeys,
+    onSelectionChange: setSelectedKeys,
   }
 
   if (error) {
@@ -318,21 +426,46 @@ export function UsersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
-            <IconUpload className="size-4 mr-1.5" />
+          <input
+            ref={bulkInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void handleBulkFileSelected(file)
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkUploading}
+            onClick={() => bulkInputRef.current?.click()}
+          >
+            {bulkUploading ? <IconLoader2 className="size-4 mr-1.5 animate-spin" /> : <IconUpload className="size-4 mr-1.5" />}
             Bulk Upload
           </Button>
-          <Button size="sm" className="melp-radius" onClick={() => setAddOpen(true)}>
+          <Button
+            size="sm"
+            className="melp-radius"
+            onClick={() => setAddOpen(!addOpen)}
+            variant={addOpen ? "secondary" : "default"}
+          >
             <IconUserPlus className="size-4 mr-1.5" />
             Add User
           </Button>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <UsersStatCards users={users} />
+      {/* Inline add-user section — hides tabs/table when open */}
+      {addOpen ? (
+        <AddUserInline
+          onSubmitAll={handleAdd}
+          onCancel={() => setAddOpen(false)}
+        />
+      ) : (
 
-      {/* Tabs */}
+      /* Tabs */
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList variant="line">
           <TabsTrigger value="all">
@@ -355,7 +488,7 @@ export function UsersPage() {
           </TabsTrigger>
           <TabsTrigger value="admin">
             Admin
-            <Badge variant="secondary" className="ml-1.5 bg-amber-100 text-amber-700 border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-[#ee4136]/10 text-[#ee4136] border-0 text-[10px] px-1.5 py-0">
               {adminCount}
             </Badge>
           </TabsTrigger>
@@ -364,33 +497,33 @@ export function UsersPage() {
         <UsersToolbar
           search={search}
           onSearchChange={setSearch}
-          departmentFilter={departmentFilter}
-          onDepartmentChange={setDepartmentFilter}
-          statusFilter={statusFilter}
-          onStatusChange={setStatusFilter}
+          filters={filters}
+          onFiltersChange={setFilters}
           departments={departments}
-          showStatusFilter={activeTab === "all"}
+          designations={designations}
+          locations={locations}
           visibleCols={visibleCols}
           onToggleCol={handleToggleCol}
+          onExport={handleExportUsersData}
           minCols={MIN_COLS}
         />
 
         <TabsContent value="all" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("all")} showStatusColumn tab="all" {...tableProps} />
+          <UsersDataTable users={getFilteredUsers("all")} tab="all" {...tableProps} />
         </TabsContent>
         <TabsContent value="active" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("active")} showStatusColumn tab="active" {...tableProps} />
+          <UsersDataTable users={getFilteredUsers("active")} tab="active" {...tableProps} />
         </TabsContent>
         <TabsContent value="inactive" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("inactive")} showStatusColumn tab="inactive" {...tableProps} />
+          <UsersDataTable users={getFilteredUsers("inactive")} tab="inactive" {...tableProps} />
         </TabsContent>
         <TabsContent value="admin" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("admin")} showStatusColumn tab="admin" {...tableProps} />
+          <UsersDataTable users={getFilteredUsers("admin")} tab="admin" {...tableProps} />
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Dialogs */}
-      <AddUserDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAdd} />
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   )

@@ -1,144 +1,1244 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
-  IconPlus, IconSearch, IconDots, IconShieldLock, IconPencil, IconTrash, IconCopy, IconCheck, IconX, IconLoader2,
+  IconArrowLeft,
+  IconLinkPlus,
+  IconLoader2,
+  IconPlus,
+  IconSearch,
+  IconTrash,
 } from "@tabler/icons-react"
+import { toast } from "sonner"
+
+import {
+  assignPolicy,
+  createPolicy as savePolicyRequest,
+  deletePolicies,
+  fetchDomains,
+  fetchPolicies,
+  fetchPolicyById,
+  fetchPolicyFeatures,
+  fetchUserGroups,
+  fetchUsers,
+  revokePolicies,
+} from "@/api/admin"
+import {
+  getErrorDescription,
+  getStatusCodeFromError,
+  mapDomainsToEntities,
+  mapFeatureLibrary,
+  mapGroupsToEntities,
+  mapPolicyDetail,
+  mapPolicySummary,
+  mapUsersToEntities,
+  normalizeListPayload,
+} from "@/components/access-management/runtime"
+import type {
+  AccessEntityType,
+  AccessFeature,
+  AccessModule,
+  AccessPolicy,
+  PolicyEntity,
+} from "@/components/access-management/types"
+import { DataTable, type ColumnDef } from "@/components/shared/data-table"
+import {
+  StatusState,
+  StatusStateActions,
+  type StatusStateCode,
+} from "@/components/shared/status-state"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { fetchPolicies } from "@/api/admin"
 import { useAuth } from "@/context/auth-context"
 
-type Policy = { id: string; name: string; description: string; resources: string[]; effect: "allow" | "deny"; status: "active" | "inactive"; assignedTo: number; createdAt: string }
+type PolicyView = "list" | "builder" | "metadata" | "detail" | "attach"
 
-function PolicyCard({ policy, onDelete }: { policy: Policy; onDelete: () => void }) {
-  const effectColor = policy.effect === "allow" ? "text-success" : "text-destructive"
-  const effectBg = policy.effect === "allow" ? "bg-success/10" : "bg-destructive/10"
-  return (
-    <Card><CardContent className="p-4">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-start gap-3">
-          <div className={`flex items-center justify-center size-9 rounded-lg ${effectBg} shrink-0 mt-0.5`}><IconShieldLock className={`size-4 ${effectColor}`} /></div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-sm">{policy.name}</p>
-              <Badge variant="secondary" className={`text-xs border-0 ${policy.effect === "allow" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                {policy.effect === "allow" ? <IconCheck className="size-3 mr-1" /> : <IconX className="size-3 mr-1" />}{policy.effect}
-              </Badge>
-              {policy.status === "inactive" && <Badge variant="secondary" className="text-xs">Inactive</Badge>}
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{policy.description}</p>
-          </div>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0"><IconDots className="size-4" /></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem><IconPencil className="size-4 mr-2" /> Edit Policy</DropdownMenuItem>
-            <DropdownMenuItem><IconCopy className="size-4 mr-2" /> Duplicate</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><IconTrash className="size-4 mr-2" /> Delete</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <div className="flex flex-wrap gap-1.5 mb-3">{policy.resources.map((r) => (<Badge key={r} variant="secondary" className="text-xs font-mono">{r}</Badge>))}</div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-3">
-        <span>Assigned to {policy.assignedTo} group{policy.assignedTo !== 1 ? "s" : ""}</span>
-        <span>Created {policy.createdAt}</span>
-      </div>
-    </CardContent></Card>
-  )
+type DraftPolicy = {
+  name: string
+  description: string
 }
 
-function AddPolicyDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (p: Omit<Policy, "id" | "createdAt" | "assignedTo">) => void }) {
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
-  const [effect, setEffect] = useState<"allow" | "deny">("allow")
-  function handleSubmit(e: React.FormEvent) { e.preventDefault(); if (!name) return; onAdd({ name, description, resources: [], effect, status: "active" }); setName(""); setDescription(""); setEffect("allow"); onClose() }
-  return (
-    <Dialog open={open} onOpenChange={onClose}><DialogContent><DialogHeader><DialogTitle>Create Policy</DialogTitle></DialogHeader>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-2">
-        <div className="flex flex-col gap-1.5"><Label>Policy Name</Label><Input placeholder="e.g. User Management" value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div className="flex flex-col gap-1.5"><Label>Description</Label><Textarea placeholder="Describe what this policy controls" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} /></div>
-        <div className="flex flex-col gap-1.5"><Label>Effect</Label>
-          <Select value={effect} onValueChange={(v) => setEffect(v as "allow" | "deny")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="allow">Allow — grant access</SelectItem><SelectItem value="deny">Deny — restrict access</SelectItem></SelectContent></Select>
-        </div>
-        <DialogFooter className="mt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" className="melp-radius">Create Policy</Button></DialogFooter>
-      </form></DialogContent></Dialog>
-  )
+const ENTITY_TYPE_TO_BACKEND: Record<AccessEntityType, "USER" | "USER_GROUP" | "DOMAIN"> = {
+  User: "USER",
+  "User Group": "USER_GROUP",
+  Domain: "DOMAIN",
+}
+
+function createEmptyDraftPolicy(): DraftPolicy {
+  return {
+    name: "",
+    description: "",
+  }
+}
+
+function buildSelectedModules(
+  moduleLibrary: AccessModule[],
+  selectedLimits: Record<string, AccessFeature["limit"]>,
+): AccessModule[] {
+  return moduleLibrary
+    .map((module) => {
+      const features = module.features
+        .map((feature) => {
+          const nextLimit = selectedLimits[feature.id]
+          if (!nextLimit) return null
+          return {
+            ...feature,
+            enabled: true,
+            limit: nextLimit,
+          }
+        })
+        .filter((feature): feature is AccessFeature => Boolean(feature))
+
+      if (features.length === 0) return null
+
+      return {
+        ...module,
+        features,
+      }
+    })
+    .filter((module): module is AccessModule => Boolean(module))
+}
+
+function seedFeatureSelections(policy: AccessPolicy): Record<string, AccessFeature["limit"]> {
+  return policy.modules.reduce<Record<string, AccessFeature["limit"]>>((accumulator, module) => {
+    module.features.forEach((feature) => {
+      if (feature.enabled) {
+        accumulator[feature.id] = feature.limit
+      }
+    })
+    return accumulator
+  }, {})
+}
+
+function buildPolicyRequestModules(
+  moduleLibrary: AccessModule[],
+  selectedLimits: Record<string, AccessFeature["limit"]>,
+) {
+  return buildSelectedModules(moduleLibrary, selectedLimits).map((module) => ({
+    name: module.backendName || module.name,
+    features: module.features.map((feature) => ({
+      featureid: feature.backendFeatureId || feature.id,
+      enable: true,
+      limit: feature.limit === "Allow" ? 1 : 0,
+    })),
+  }))
 }
 
 export function AccessPoliciesPage() {
-  const { selectedClient } = useAuth()
-  const [policies, setPolicies] = useState<Policy[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const { selectedClient, selectedClientName } = useAuth()
+
+  const [view, setView] = useState<PolicyView>("list")
+  const [builderMode, setBuilderMode] = useState<"create" | "edit">("create")
+  const [draft, setDraft] = useState<DraftPolicy>(createEmptyDraftPolicy)
+  const [editingPolicyId, setEditingPolicyId] = useState<string | null>(null)
+
   const [search, setSearch] = useState("")
-  const [effectFilter, setEffectFilter] = useState("all")
-  const [addOpen, setAddOpen] = useState(false)
+  const [librarySearch, setLibrarySearch] = useState("")
+  const [attachSearch, setAttachSearch] = useState("")
+  const [attachType, setAttachType] = useState<AccessEntityType>("User Group")
 
-  const loadPolicies = useCallback(async () => {
-    setLoading(true); setError("")
+  const [policies, setPolicies] = useState<AccessPolicy[]>([])
+  const [policiesLoading, setPoliciesLoading] = useState(false)
+  const [policiesStatusCode, setPoliciesStatusCode] = useState<StatusStateCode | undefined>()
+  const [policiesStatusMessage, setPoliciesStatusMessage] = useState<string | undefined>()
+
+  const [moduleLibrary, setModuleLibrary] = useState<AccessModule[]>([])
+  const [libraryLoading, setLibraryLoading] = useState(false)
+  const [libraryStatusCode, setLibraryStatusCode] = useState<StatusStateCode | undefined>()
+  const [libraryStatusMessage, setLibraryStatusMessage] = useState<string | undefined>()
+
+  const [selectedPolicy, setSelectedPolicy] = useState<AccessPolicy | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailStatusCode, setDetailStatusCode] = useState<StatusStateCode | undefined>()
+  const [detailStatusMessage, setDetailStatusMessage] = useState<string | undefined>()
+  const [selectedEntityKeys, setSelectedEntityKeys] = useState<Set<string>>(new Set())
+
+  const [attachCandidates, setAttachCandidates] = useState<PolicyEntity[]>([])
+  const [attachLoading, setAttachLoading] = useState(false)
+  const [attachStatusCode, setAttachStatusCode] = useState<StatusStateCode | undefined>()
+  const [attachStatusMessage, setAttachStatusMessage] = useState<string | undefined>()
+  const [selectedAttachKeys, setSelectedAttachKeys] = useState<Set<string>>(new Set())
+
+  const [selectedFeatureLimits, setSelectedFeatureLimits] = useState<Record<string, AccessFeature["limit"]>>({})
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const selectedModules = useMemo(
+    () => buildSelectedModules(moduleLibrary, selectedFeatureLimits),
+    [moduleLibrary, selectedFeatureLimits],
+  )
+
+  const filteredPolicies = policies
+
+  const filteredLibrary = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase()
+    if (!query) return moduleLibrary
+
+    return moduleLibrary.filter((module) => {
+      if (module.name.toLowerCase().includes(query)) return true
+      return module.features.some((feature) => feature.name.toLowerCase().includes(query))
+    })
+  }, [librarySearch, moduleLibrary])
+
+  const filteredAttachCandidates = useMemo(() => {
+    const query = attachSearch.trim().toLowerCase()
+    if (!query) return attachCandidates
+
+    return attachCandidates.filter((candidate) => {
+      return (
+        candidate.name.toLowerCase().includes(query) ||
+        candidate.secondary.toLowerCase().includes(query)
+      )
+    })
+  }, [attachCandidates, attachSearch])
+
+  const policyColumns: ColumnDef<AccessPolicy>[] = [
+    {
+      id: "name",
+      header: "Policy Name",
+      sticky: true,
+      accessor: (policy) => (
+        <button type="button" className="block max-w-50 truncate text-left font-medium">
+          {policy.name}
+        </button>
+      ),
+      minWidth: "200px",
+    },
+    {
+      id: "description",
+      header: "Description",
+      accessor: (policy) => (
+        <span className="block max-w-[16rem] line-clamp-3 whitespace-normal break-words text-muted-foreground">
+          {policy.description}
+        </span>
+      ),
+      minWidth: "180px",
+    },
+    { id: "createdAt", header: "Created", accessor: "createdAt", minWidth: "110px" },
+    {
+      id: "modules",
+      header: "Modules",
+      accessor: (policy) => (
+        <Badge variant="secondary" className="border-0">
+          {policy.moduleCount ?? policy.modules.length} modules
+        </Badge>
+      ),
+      minWidth: "100px",
+    },
+    {
+      id: "entities",
+      header: "Entities",
+      accessor: (policy) => (
+        <Badge variant="secondary" className="border-0">
+          {policy.entityCount ?? policy.entities.length} attached
+        </Badge>
+      ),
+      minWidth: "100px",
+    },
+    {
+      id: "risk",
+      header: "Risk",
+      accessor: (policy) => <Badge variant="outline">{policy.risk}</Badge>,
+      minWidth: "100px",
+    },
+  ]
+
+  const attachColumns: ColumnDef<PolicyEntity>[] = [
+    { id: "name", header: "Name", accessor: "name", sticky: true, minWidth: "180px" },
+    { id: "type", header: "Type", accessor: "type", minWidth: "120px" },
+    {
+      id: "details",
+      header: "Details",
+      accessor: (entity) => (
+        <span className="text-sm text-muted-foreground">{entity.secondary}</span>
+      ),
+      minWidth: "180px",
+    },
+    {
+      id: "availability",
+      header: "Availability",
+      accessor: "attachedAt",
+      align: "right",
+      minWidth: "120px",
+    },
+  ]
+
+  const moduleColumns: ColumnDef<AccessModule>[] = [
+    { id: "name", header: "Module", accessor: "name", sticky: true, minWidth: "180px" },
+    { id: "scope", header: "Scope", accessor: "scope", minWidth: "120px" },
+    {
+      id: "features",
+      header: "Rules",
+      accessor: (module) => (
+        <div className="flex max-w-[18rem] flex-wrap gap-1">
+          {module.features.slice(0, 4).map((feature) => (
+            <Badge key={feature.id} variant="secondary" className="border-0 text-[10px]">
+              {feature.name}: {feature.limit}
+            </Badge>
+          ))}
+          {module.features.length > 4 ? (
+            <Badge variant="outline" className="text-[10px]">
+              +{module.features.length - 4}
+            </Badge>
+          ) : null}
+        </div>
+      ),
+      minWidth: "220px",
+    },
+  ]
+
+  useEffect(() => {
+    if (!selectedClient) {
+      setPolicies([])
+      setPoliciesStatusCode(undefined)
+      setPoliciesStatusMessage(undefined)
+      return
+    }
+
+    let cancelled = false
+
+    const loadPolicies = async () => {
+      setPoliciesLoading(true)
+      setPoliciesStatusCode(undefined)
+      setPoliciesStatusMessage(undefined)
+
+      try {
+        const raw = await fetchPolicies({
+          clientid: selectedClient,
+          count: 200,
+          page: 1,
+          search,
+        })
+
+        if (cancelled) return
+
+        if (raw === null) {
+          setPolicies([])
+          setPoliciesStatusCode(204)
+          return
+        }
+
+        const payload = normalizeListPayload(raw)
+        setPolicies(payload.list.map((item) => mapPolicySummary(item)))
+        setPoliciesStatusCode(undefined)
+      } catch (error) {
+        if (cancelled) return
+        setPolicies([])
+        setPoliciesStatusCode(getStatusCodeFromError(error) ?? 500)
+        setPoliciesStatusMessage(getErrorDescription(error))
+      } finally {
+        if (!cancelled) {
+          setPoliciesLoading(false)
+        }
+      }
+    }
+
+    void loadPolicies()
+
+    return () => {
+      cancelled = true
+    }
+  }, [search, selectedClient])
+
+  useEffect(() => {
+    if (!(view === "builder" || view === "metadata") || !selectedClient) return
+    if (moduleLibrary.length > 0 || libraryLoading) return
+
+    let cancelled = false
+
+    const loadLibrary = async () => {
+      setLibraryLoading(true)
+      setLibraryStatusCode(undefined)
+      setLibraryStatusMessage(undefined)
+
+      try {
+        const raw = await fetchPolicyFeatures(selectedClient)
+        if (cancelled) return
+
+        if (raw === null) {
+          setModuleLibrary([])
+          setLibraryStatusCode(204)
+          return
+        }
+
+        setModuleLibrary(mapFeatureLibrary(raw))
+      } catch (error) {
+        if (cancelled) return
+        setModuleLibrary([])
+        setLibraryStatusCode(getStatusCodeFromError(error) ?? 500)
+        setLibraryStatusMessage(getErrorDescription(error))
+      } finally {
+        if (!cancelled) {
+          setLibraryLoading(false)
+        }
+      }
+    }
+
+    void loadLibrary()
+
+    return () => {
+      cancelled = true
+    }
+  }, [libraryLoading, moduleLibrary.length, selectedClient, view])
+
+  useEffect(() => {
+    if (view !== "attach" || !selectedPolicy || !selectedClient) return
+
+    let cancelled = false
+
+    const loadCandidates = async () => {
+      setAttachLoading(true)
+      setAttachStatusCode(undefined)
+      setAttachStatusMessage(undefined)
+
+      try {
+        let nextCandidates: PolicyEntity[] = []
+
+        if (attachType === "User") {
+          const raw = await fetchUsers({
+            page: 1,
+            pageSize: 100,
+            clientid: selectedClient,
+            category: 0,
+            filters: attachSearch.trim()
+              ? [
+                  { column: "FULL_NAME", value: attachSearch.trim() },
+                  { column: "EMAIL", value: attachSearch.trim() },
+                ]
+              : [],
+          })
+
+          if (raw === null) {
+            if (cancelled) return
+            setAttachCandidates([])
+            setAttachStatusCode(204)
+            return
+          }
+
+          nextCandidates = mapUsersToEntities(raw)
+        }
+
+        if (attachType === "User Group") {
+          const raw = await fetchUserGroups({
+            page: 1,
+            count: 100,
+            filters: {
+              clientid: Number(selectedClient),
+              query: attachSearch.trim(),
+            },
+          })
+
+          if (raw === null) {
+            if (cancelled) return
+            setAttachCandidates([])
+            setAttachStatusCode(204)
+            return
+          }
+
+          nextCandidates = mapGroupsToEntities(raw)
+        }
+
+        if (attachType === "Domain") {
+          const raw = await fetchDomains(selectedClient)
+          if (raw === null) {
+            if (cancelled) return
+            setAttachCandidates([])
+            setAttachStatusCode(204)
+            return
+          }
+
+          nextCandidates = mapDomainsToEntities(raw)
+        }
+
+        if (cancelled) return
+
+        setAttachCandidates(nextCandidates)
+        setSelectedAttachKeys(new Set())
+      } catch (error) {
+        if (cancelled) return
+        setAttachCandidates([])
+        setAttachStatusCode(getStatusCodeFromError(error) ?? 500)
+        setAttachStatusMessage(getErrorDescription(error))
+      } finally {
+        if (!cancelled) {
+          setAttachLoading(false)
+        }
+      }
+    }
+
+    void loadCandidates()
+
+    return () => {
+      cancelled = true
+    }
+  }, [attachSearch, attachType, selectedClient, selectedPolicy, view])
+
+  const loadPolicyDetail = async (policyId: string) => {
+    if (!selectedClient) return
+
+    setView("detail")
+    setDetailLoading(true)
+    setDetailStatusCode(undefined)
+    setDetailStatusMessage(undefined)
+    setSelectedEntityKeys(new Set())
+
     try {
-      const result = await fetchPolicies({ clientid: selectedClient || "", page: 1, count: 200, search: "" }) as Record<string, unknown>
-      const list = (result?.list || []) as Record<string, unknown>[]
-      const mapped: Policy[] = (list as Record<string, unknown>[]).map((p, idx) => ({
-        id: String(p.policyid || p.id || idx),
-        name: String(p.policyname || p.name || "Unnamed"),
-        description: String(p.description || ""),
-        resources: Array.isArray(p.resources) ? (p.resources as string[]) : [],
-        effect: p.effect === "deny" ? "deny" : "allow",
-        status: p.isactive === false || p.status === "inactive" ? "inactive" : "active",
-        assignedTo: Number(p.groupcount || p.assignedTo || 0),
-        createdAt: String(p.createddate || p.createdAt || ""),
+      const raw = await fetchPolicyById(policyId, selectedClient)
+
+      if (raw === null) {
+        setSelectedPolicy(null)
+        setDetailStatusCode(204)
+        return
+      }
+
+      const mapped = mapPolicyDetail(raw)
+      setSelectedPolicy(mapped)
+      setDetailStatusCode(undefined)
+    } catch (error) {
+      setSelectedPolicy(null)
+      setDetailStatusCode(getStatusCodeFromError(error) ?? 500)
+      setDetailStatusMessage(getErrorDescription(error))
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const resetBuilder = () => {
+    setBuilderMode("create")
+    setEditingPolicyId(null)
+    setDraft(createEmptyDraftPolicy())
+    setSelectedFeatureLimits({})
+    setLibrarySearch("")
+  }
+
+  const openCreateBuilder = () => {
+    resetBuilder()
+    setView("builder")
+  }
+
+  const openEditBuilder = () => {
+    if (!selectedPolicy) return
+    setBuilderMode("edit")
+    setEditingPolicyId(selectedPolicy.id)
+    setDraft({
+      name: selectedPolicy.name,
+      description: selectedPolicy.description,
+    })
+    setSelectedFeatureLimits(seedFeatureSelections(selectedPolicy))
+    setView("builder")
+  }
+
+  const handleToggleFeature = (feature: AccessFeature, limit: AccessFeature["limit"]) => {
+    setSelectedFeatureLimits((current) => {
+      if (current[feature.id] === limit) {
+        const next = { ...current }
+        delete next[feature.id]
+        return next
+      }
+
+      return {
+        ...current,
+        [feature.id]: limit,
+      }
+    })
+  }
+
+  const handleSavePolicy = async () => {
+    if (!selectedClient) return
+
+    const name = draft.name.trim()
+    const description = draft.description.trim()
+    const modules = buildPolicyRequestModules(moduleLibrary, selectedFeatureLimits)
+
+    if (!name) {
+      toast.error("Add a policy name before saving.")
+      return
+    }
+
+    if (modules.length === 0) {
+      toast.error("Choose at least one permission before saving this policy.")
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      await savePolicyRequest({
+        clientid: Number(selectedClient),
+        policyName: name,
+        desc: description,
+        modules,
+        ...(builderMode === "edit" && editingPolicyId ? { pkid: editingPolicyId } : {}),
+      })
+
+      toast.success(builderMode === "edit" ? "Policy updated." : "Policy created.")
+      const raw = await fetchPolicies({ clientid: selectedClient, count: 200, page: 1, search })
+      if (raw === null) {
+        setPolicies([])
+        setPoliciesStatusCode(204)
+      } else {
+        const payload = normalizeListPayload(raw)
+        setPolicies(payload.list.map((item) => mapPolicySummary(item)))
+        setPoliciesStatusCode(undefined)
+      }
+
+      if (builderMode === "edit" && editingPolicyId) {
+        await loadPolicyDetail(editingPolicyId)
+        setView("detail")
+      } else {
+        resetBuilder()
+        setView("list")
+      }
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to save this policy right now.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeletePolicy = async () => {
+    if (!selectedPolicy || !selectedClient) return
+
+    const confirmed = window.confirm(`Delete ${selectedPolicy.name}?`)
+    if (!confirmed) return
+
+    setDeleting(true)
+
+    try {
+      await deletePolicies([selectedPolicy.id], selectedClient)
+      toast.success("Policy deleted.")
+      setSelectedPolicy(null)
+      setView("list")
+
+      const raw = await fetchPolicies({
+        clientid: selectedClient,
+        count: 200,
+        page: 1,
+        search,
+      })
+
+      if (raw === null) {
+        setPolicies([])
+        setPoliciesStatusCode(204)
+        return
+      }
+
+      const payload = normalizeListPayload(raw)
+      setPolicies(payload.list.map((item) => mapPolicySummary(item)))
+      setPoliciesStatusCode(undefined)
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to delete this policy right now.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleAttachEntities = async () => {
+    if (!selectedPolicy || !selectedClient || selectedAttachKeys.size === 0) return
+
+    const add = filteredAttachCandidates
+      .filter((candidate) => selectedAttachKeys.has(candidate.id))
+      .map((candidate) => ({
+        type: ENTITY_TYPE_TO_BACKEND[attachType],
+        entityId: candidate.entityId || candidate.id,
       }))
-      setPolicies(mapped)
-    } catch (err) { setError((err as Error).message || "Failed to load policies"); setPolicies([]) }
-    finally { setLoading(false) }
-  }, [selectedClient])
 
-  useEffect(() => { loadPolicies() }, [loadPolicies])
+    if (add.length === 0) {
+      toast.error("Select at least one entity to attach.")
+      return
+    }
 
-  const filtered = policies.filter((p) => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase())
-    const matchEffect = effectFilter === "all" || p.effect === effectFilter
-    return matchSearch && matchEffect
-  })
+    setSaving(true)
 
-  function handleAdd(data: Omit<Policy, "id" | "createdAt" | "assignedTo">) { setPolicies((prev) => [{ ...data, id: String(Date.now()), assignedTo: 0, createdAt: new Date().toISOString().split("T")[0] }, ...prev]) }
-  function handleDelete(id: string) { setPolicies((prev) => prev.filter((p) => p.id !== id)) }
+    try {
+      await assignPolicy(selectedPolicy.id, {
+        clientid: Number(selectedClient),
+        policyId: selectedPolicy.id,
+        add,
+      })
+      toast.success(`${attachType} attached.`)
+      setSelectedAttachKeys(new Set())
+      await loadPolicyDetail(selectedPolicy.id)
+      setView("detail")
+    } catch (error) {
+      toast.error(getErrorDescription(error) || `Unable to attach ${attachType.toLowerCase()}s right now.`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  if (loading) return <div className="flex flex-1 items-center justify-center p-8"><IconLoader2 className="size-8 animate-spin text-muted-foreground" /></div>
-  if (error) return <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={loadPolicies}>Retry</Button></div>
+  const handleDetachEntities = async () => {
+    if (!selectedPolicy || selectedEntityKeys.size === 0) return
+
+    const revokeIds = selectedPolicy.entities
+      .filter((entity) => selectedEntityKeys.has(entity.id))
+      .map((entity) => entity.activeId || entity.id)
+
+    if (revokeIds.length === 0) return
+
+    setSaving(true)
+
+    try {
+      await revokePolicies(selectedPolicy.id, revokeIds)
+      toast.success("Entity access removed.")
+      setSelectedEntityKeys(new Set())
+      await loadPolicyDetail(selectedPolicy.id)
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to remove these entity assignments right now.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!selectedClient) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <StatusState
+          title="Choose a domain first"
+          description="Access policies are scoped to the active domain. Pick a domain from the header to keep going."
+        />
+      </div>
+    )
+  }
+
+  if (view === "detail") {
+    if (detailLoading) {
+      return (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <IconLoader2 className="size-8 animate-spin text-muted-foreground" />
+        </div>
+      )
+    }
+
+    if (detailStatusCode || !selectedPolicy) {
+      return (
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+          <div className="space-y-3">
+            <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("list")}>
+              <IconArrowLeft className="size-4" />
+              Back to Policies
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">Policy Detail</h1>
+              <p className="text-sm text-muted-foreground">
+                The selected policy could not be loaded right now.
+              </p>
+            </div>
+          </div>
+
+          <StatusState
+            code={detailStatusCode}
+            description={detailStatusMessage}
+            actionSlot={
+              <StatusStateActions
+                secondaryLabel="Back"
+                onSecondaryClick={() => setView("list")}
+                primaryLabel="Open Create Policy"
+                onPrimaryClick={openCreateBuilder}
+              />
+            }
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("list")}>
+            <IconArrowLeft className="size-4" />
+            Back to Policies
+          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">{selectedPolicy.name}</h1>
+              <p className="text-sm text-muted-foreground">{selectedPolicy.description}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={openEditBuilder}>
+                Edit Policy
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setAttachType("User"); setView("attach") }}>
+                Attach User
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setAttachType("User Group"); setView("attach") }}>
+                Attach Group
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setAttachType("Domain"); setView("attach") }}>
+                Attach Domain
+              </Button>
+              <Button variant="destructive" size="sm" disabled={deleting} onClick={handleDeletePolicy}>
+                {deleting ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : <IconTrash className="mr-1.5 size-4" />}
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">{selectedPolicy.risk}</Badge>
+          <Badge variant="secondary" className="border-0">
+            {selectedPolicy.moduleCount ?? selectedPolicy.modules.length} modules
+          </Badge>
+          <Badge variant="secondary" className="border-0">
+            {selectedPolicy.entityCount ?? selectedPolicy.entities.length} entities
+          </Badge>
+          <Badge variant="outline">{selectedPolicy.createdAt}</Badge>
+        </div>
+
+        <Tabs defaultValue="permissions">
+          <TabsList variant="line">
+            <TabsTrigger value="permissions">Permissions</TabsTrigger>
+            <TabsTrigger value="entities">Entities</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="permissions" className="space-y-4">
+            <DataTable<AccessModule>
+              columns={moduleColumns}
+              data={selectedPolicy.modules}
+              rowKey={(module) => module.id}
+              emptyState={
+                <StatusState
+                  compact
+                  title="No modules attached"
+                  description="This policy does not have any module rules yet."
+                />
+              }
+            />
+          </TabsContent>
+
+          <TabsContent value="entities" className="space-y-4">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" disabled={saving || selectedEntityKeys.size === 0} onClick={handleDetachEntities}>
+                {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : <IconTrash className="mr-1.5 size-4" />}
+                Detach Selected
+              </Button>
+            </div>
+            <DataTable<PolicyEntity>
+              columns={attachColumns}
+              data={selectedPolicy.entities}
+              rowKey={(entity) => entity.id}
+              paginated
+              selectable
+              selectedKeys={selectedEntityKeys}
+              onSelectionChange={setSelectedEntityKeys}
+              emptyState={
+                <StatusState
+                  compact
+                  title="No entities attached"
+                  description="This policy is not currently assigned to any users, groups, or domains."
+                />
+              }
+            />
+          </TabsContent>
+        </Tabs>
+      </div>
+    )
+  }
+
+  if (view === "builder") {
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("list")}>
+            <IconArrowLeft className="size-4" />
+            Back to Policies
+          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">
+                {builderMode === "create" ? "Create Policy" : "Edit Policy"}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Choose modules and feature rules before moving to policy metadata.
+              </p>
+            </div>
+            <Badge variant="outline">{selectedModules.length} selected modules</Badge>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Permission Library</h3>
+              <div className="relative w-full sm:w-64">
+                <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search modules…"
+                  value={librarySearch}
+                  onChange={(event) => setLibrarySearch(event.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            {libraryStatusCode ? (
+              <StatusState
+                code={libraryStatusCode}
+                compact
+                description={libraryStatusMessage}
+              />
+            ) : libraryLoading ? (
+              <div className="flex items-center justify-center rounded-md border p-8">
+                <IconLoader2 className="size-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredLibrary.length === 0 ? (
+              <StatusState
+                compact
+                title={librarySearch ? "No modules match this search" : "No modules available yet"}
+                description={
+                  librarySearch
+                    ? "Try another search term."
+                    : "The policy feature library is currently empty for this domain."
+                }
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredLibrary.map((module) => (
+                  <div key={module.id} className="rounded-md border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{module.name}</p>
+                        <p className="text-xs text-muted-foreground">{module.description}</p>
+                      </div>
+                      <Badge variant="outline">{module.scope}</Badge>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {module.features.map((feature) => {
+                        const currentLimit = selectedFeatureLimits[feature.id]
+                        return (
+                          <div key={feature.id} className="flex flex-col gap-3 rounded-md border border-border/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-medium">{feature.name}</p>
+                              <p className="text-xs text-muted-foreground">{feature.description}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant={currentLimit === "Allow" ? "default" : "outline"}
+                                onClick={() => handleToggleFeature(feature, "Allow")}
+                              >
+                                Allow
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={currentLimit === "Deny" ? "default" : "outline"}
+                                onClick={() => handleToggleFeature(feature, "Deny")}
+                              >
+                                Deny
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Selected Permissions ({selectedModules.length})</h3>
+            {selectedModules.length === 0 ? (
+              <StatusState
+                compact
+                title="No permissions selected"
+                description="Selected modules will appear here once you choose at least one rule."
+              />
+            ) : (
+              <div className="space-y-3">
+                {selectedModules.map((module) => (
+                  <div key={module.id} className="rounded-md border p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{module.name}</p>
+                      <Badge variant="secondary" className="border-0">
+                        {module.features.length} rules
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {module.features.map((feature) => (
+                        <Badge key={feature.id} variant="outline">
+                          {feature.name}: {feature.limit}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t pt-5 sm:flex-row sm:justify-between">
+          <Button variant="outline" onClick={() => setView("list")}>
+            Cancel
+          </Button>
+          <Button className="melp-radius" disabled={selectedModules.length === 0 || libraryLoading} onClick={() => setView("metadata")}>
+            Continue
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (view === "metadata") {
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("builder")}>
+            <IconArrowLeft className="size-4" />
+            Back to Permission Builder
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">
+              {builderMode === "create" ? "Name and Describe Policy" : "Review Policy Metadata"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Finish the policy name and description before saving.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="space-y-4 rounded-md border p-4">
+            <h3 className="text-sm font-semibold">Policy Information</h3>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Policy Name</Label>
+              <Input
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, name: event.target.value }))
+                }
+                placeholder="e.g. Operations Core Access"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Description</Label>
+              <Textarea
+                value={draft.description}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, description: event.target.value }))
+                }
+                placeholder="Describe who should use this policy and why it exists."
+                rows={6}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Policy Preview</h3>
+            <div className="rounded-md border bg-muted/30 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold">{draft.name || "Untitled Policy"}</p>
+                <Badge variant="outline">{selectedModules.length} modules</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {draft.description || "Policy description preview will appear here."}
+              </p>
+            </div>
+            {selectedModules.length === 0 ? (
+              <StatusState
+                compact
+                title="No modules connected"
+                description="Go back to the permission builder to select at least one module."
+              />
+            ) : (
+              <div className="space-y-3">
+                {selectedModules.map((module) => (
+                  <div key={module.id} className="rounded-md border p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{module.name}</p>
+                      <Badge variant="secondary" className="border-0">
+                        {module.features.length} rules
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {module.features.map((feature) => (
+                        <Badge key={feature.id} variant="outline">
+                          {feature.name}: {feature.limit}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t pt-5 sm:flex-row sm:justify-between">
+          <Button variant="outline" onClick={() => setView("list")}>
+            Cancel
+          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => setView("builder")}>
+              Back
+            </Button>
+            <Button className="melp-radius" disabled={saving} onClick={handleSavePolicy}>
+              {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : null}
+              {builderMode === "create" ? "Create Policy" : "Save Policy"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (view === "attach") {
+    return (
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <div className="space-y-3">
+          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("detail")}>
+            <IconArrowLeft className="size-4" />
+            Back to Policy Detail
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Attach {attachType}</h1>
+            <p className="text-sm text-muted-foreground">
+              Choose which {attachType.toLowerCase()}s should receive this policy.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {(["User", "User Group", "Domain"] as AccessEntityType[]).map((type) => (
+            <Button
+              key={type}
+              variant={attachType === type ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAttachType(type)}
+            >
+              {type}
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:w-72">
+            <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={`Search ${attachType.toLowerCase()}s…`}
+              value={attachSearch}
+              onChange={(event) => setAttachSearch(event.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex-1" />
+          <Badge variant="secondary" className="border-0">
+            {filteredAttachCandidates.length} results
+          </Badge>
+        </div>
+
+        {attachStatusCode ? (
+          <StatusState
+            code={attachStatusCode}
+            title={`Unable to load ${attachType.toLowerCase()} candidates`}
+            description={attachStatusMessage}
+          />
+        ) : (
+          <DataTable<PolicyEntity>
+            columns={attachColumns}
+            data={filteredAttachCandidates}
+            rowKey={(entity) => entity.id}
+            loading={attachLoading}
+            paginated
+            selectable
+            selectedKeys={selectedAttachKeys}
+            onSelectionChange={setSelectedAttachKeys}
+            emptyState={
+              <StatusState
+                compact
+                title={attachSearch ? `No ${attachType.toLowerCase()}s match this search` : `No ${attachType.toLowerCase()} candidates available`}
+                description={
+                  attachSearch
+                    ? "Try another search term."
+                    : "This table is waiting for live attachment candidates from the backend."
+                }
+              />
+            }
+          />
+        )}
+
+        <div className="flex flex-col-reverse gap-3 border-t pt-5 sm:flex-row sm:justify-between">
+          <Button variant="outline" onClick={() => setView("detail")}>
+            Cancel
+          </Button>
+          <Button className="melp-radius" disabled={saving || selectedAttachKeys.size === 0} onClick={handleAttachEntities}>
+            {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : <IconLinkPlus className="mr-1.5 size-4" />}
+            Attach {attachType}
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-y-auto overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div><h1 className="text-2xl font-bold">Policies</h1><p className="text-sm text-muted-foreground">Define and manage access control policies assigned to groups</p></div>
-        <Button size="sm" className="melp-radius" onClick={() => setAddOpen(true)}><IconPlus className="size-4 mr-1.5" />New Policy</Button>
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Policies</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage permission policies, modules, and entity attachments.
+          </p>
+        </div>
+        <Button size="sm" className="melp-radius" onClick={openCreateBuilder}>
+          <IconPlus className="mr-1.5 size-4" />
+          Create Policy
+        </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Policies</p><p className="text-2xl font-bold mt-1">{policies.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Allow Policies</p><p className="text-2xl font-bold mt-1 text-success">{policies.filter((p) => p.effect === "allow").length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Deny Policies</p><p className="text-2xl font-bold mt-1 text-destructive">{policies.filter((p) => p.effect === "deny").length}</p></CardContent></Card>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-72">
+          <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search policies…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="flex-1" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="border-0 text-[10px] px-1.5 py-0">
+            {moduleLibrary.length} module templates
+          </Badge>
+          <Badge variant="secondary" className="border-0 text-[10px] px-1.5 py-0">
+            {filteredPolicies.length} policies
+          </Badge>
+          <Badge variant="outline">{selectedClientName || selectedClient}</Badge>
+        </div>
       </div>
 
-      <div className="flex gap-2">
-        <div className="relative flex-1 max-w-sm"><IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" /><Input placeholder="Search policies…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" /></div>
-        <Select value={effectFilter} onValueChange={setEffectFilter}><SelectTrigger className="w-[130px]"><SelectValue placeholder="Effect" /></SelectTrigger><SelectContent><SelectItem value="all">All Effects</SelectItem><SelectItem value="allow">Allow</SelectItem><SelectItem value="deny">Deny</SelectItem></SelectContent></Select>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {filtered.map((policy) => (<PolicyCard key={policy.id} policy={policy} onDelete={() => handleDelete(policy.id)} />))}
-        {filtered.length === 0 && <p className="col-span-full text-center text-muted-foreground py-12">No policies found.</p>}
-      </div>
-
-      <AddPolicyDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAdd} />
+      {policiesStatusCode ? (
+        <StatusState
+          code={policiesStatusCode}
+          title={policiesStatusCode === 204 ? "No policy content available yet" : undefined}
+          description={policiesStatusCode === 204 ? undefined : policiesStatusMessage}
+          actionSlot={<StatusStateActions primaryLabel="Open Create Policy" onPrimaryClick={openCreateBuilder} />}
+        />
+      ) : (
+        <DataTable<AccessPolicy>
+          columns={policyColumns}
+          data={filteredPolicies}
+          rowKey={(policy) => policy.id}
+          onRowClick={(policy) => void loadPolicyDetail(policy.id)}
+          loading={policiesLoading}
+          paginated
+          emptyState={
+            <StatusState
+              compact
+              title={search ? "No policies match this search" : "No policies created yet"}
+              description={
+                search
+                  ? "Try another keyword or clear the search."
+                  : "Create your first policy to start attaching access rules to users, groups, and domains."
+              }
+            />
+          }
+        />
+      )}
     </div>
   )
 }

@@ -7,10 +7,24 @@ type Params = Record<string, ParamValue>;
 
 const withSession = (params: Params = {}): Params => {
 	// Auth is handled via Authorization: Bearer <JWT> header in http.ts.
-	// The SPA does NOT pass sessionid/melpid as query params for admin endpoints —
-	// doing so causes the backend to validate the (potentially stale) sessionid
-	// and return 401 even when the JWT is valid.
+	// Keep sessionid out of query params. Access-management endpoints selectively
+	// add melpid below to match the legacy SPA contract without reintroducing
+	// session-based auth failures.
 	return { ...params };
+};
+
+const getEncryptedMelpid = (): string | undefined => {
+	const auth = loadStoredAuth();
+	const encryptedMelpid = auth?.encryptedMelpid?.trim();
+	if (encryptedMelpid) return encryptedMelpid;
+
+	const melpid = auth?.user?.melpid?.trim();
+	return melpid || undefined;
+};
+
+const withAccessMelpid = (params: Params = {}): Params => {
+	const melpid = getEncryptedMelpid();
+	return melpid ? { ...params, melpid } : { ...params };
 };
 
 const decodeResponse = async (res: unknown): Promise<unknown> => {
@@ -79,9 +93,47 @@ const normalizeListResponse = <T = unknown>(
 
 export const fetchDomains = async (clientid = ""): Promise<unknown> => {
 	const raw = await get("/AdminPanel/domains", {
-		params: withSession({ clientid }),
+		params: withAccessMelpid({ clientid }),
 	});
 	return decodeResponse(raw);
+};
+
+export const fetchAuditLogs = async ({
+	clientid,
+	page = 1,
+	count = 20,
+	search = "",
+	sortAsc = false,
+	actions = [],
+}: {
+	clientid?: string;
+	page?: number;
+	count?: number;
+	search?: string;
+	sortAsc?: boolean;
+	actions?: string[];
+} = {}): Promise<NormalizedList> => {
+	const params = withSession({
+		clientid: clientid ? Number(clientid) : undefined,
+		page,
+		count,
+	});
+	const body: Record<string, unknown> = {
+		search: search.trim(),
+		sort: {
+			column: "ACTION_TIME",
+			asc: sortAsc,
+		},
+	};
+	if (actions.length > 0) {
+		body.filters = {
+			column: "ACTION",
+			value: actions.join(","),
+		};
+	}
+	const raw = await postJson("/admin/audit/logs", body, { params });
+	const decoded = await decodeResponse(raw);
+	return normalizeListResponse(decoded);
 };
 
 export const verifyDomain = async (domain: string): Promise<unknown> => {
@@ -103,7 +155,7 @@ export const fetchDomainPolicies = async (
 	page = 1,
 	count = 10,
 ): Promise<unknown> => {
-	const params = withSession({ page, count });
+	const params = withAccessMelpid({ page, count });
 	const raw = await get(`/admin/domain/${clientid}`, { params });
 	return decodeResponse(raw);
 };
@@ -207,18 +259,22 @@ export const fetchTeams = async ({
 	pageSize = 20,
 	search = "",
 	clientid,
+	isActive = 1,
 }: {
 	page?: number;
 	pageSize?: number;
 	search?: string;
 	clientid?: string;
+	isActive?: 0 | 1;
 } = {}): Promise<NormalizedList> => {
 	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
 	const params = withSession({ page, count: pageSize });
 	const body = {
 		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
 		groupType: 0,
-		query: search,
+		isActive,
+		query: search.trim(),
+		sort: { column: "GROUP_NAME", asc: true },
 	};
 	const raw = await postJson("/admin/group/list", body, { params });
 	const decoded = await decodeResponse(raw);
@@ -230,22 +286,68 @@ export const fetchGroups = async ({
 	pageSize = 20,
 	search = "",
 	clientid,
+	isActive = 1,
 }: {
 	page?: number;
 	pageSize?: number;
 	search?: string;
 	clientid?: string;
+	isActive?: 0 | 1;
 } = {}): Promise<NormalizedList> => {
 	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
 	const params = withSession({ page, count: pageSize });
 	const body = {
 		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
 		groupType: 1,
-		query: search,
+		isActive,
+		query: search.trim(),
+		sort: { column: "GROUP_NAME", asc: true },
 	};
 	const raw = await postJson("/admin/group/list", body, { params });
 	const decoded = await decodeResponse(raw);
 	return normalizeListResponse(decoded);
+};
+
+export const fetchArchivedTeamGroups = async ({
+	groupType,
+	page = 1,
+	pageSize = 20,
+	search = "",
+	clientid,
+}: {
+	groupType: 0 | 1;
+	page?: number;
+	pageSize?: number;
+	search?: string;
+	clientid?: string;
+}): Promise<NormalizedList> => {
+	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
+	const params = withSession({ page, count: pageSize });
+	const body = {
+		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
+		groupType,
+		query: search.trim(),
+		sort: { column: "GROUP_NAME", asc: true },
+	};
+	const raw = await postJson("/admin/group/archivelist", body, { params });
+	const decoded = await decodeResponse(raw);
+	return normalizeListResponse(decoded);
+};
+
+export const archiveTeamGroup = async (
+	groupid: string,
+	clientid: string,
+): Promise<unknown> => {
+	const params = withSession({ clientid, groupid });
+	return postJson(`/admin/group/${groupid}/archive`, {}, { params });
+};
+
+export const activateTeamGroup = async (
+	groupid: string,
+	clientid: string,
+): Promise<unknown> => {
+	const params = withSession({ clientid, groupid });
+	return postJson(`/admin/group/${groupid}/activate`, {}, { params });
 };
 
 export const fetchDeletedUsers = async ({
@@ -371,7 +473,7 @@ export const fetchUserGroups = async ({
 	count?: number;
 	filters?: Record<string, unknown>;
 }): Promise<unknown> => {
-	const params = withSession({ page, count });
+	const params = withAccessMelpid({ page, count });
 	const body = { ...filters };
 	const normalizedSort = (body as Record<string, unknown>).sort || {
 		column: "GROUP_NAME",
@@ -385,14 +487,18 @@ export const fetchUserGroups = async ({
 export const createUserGroup = async (
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withSession({ clientid: payload.clientid as ParamValue });
+	const params = withAccessMelpid({
+		clientid: payload.clientid as ParamValue,
+	});
 	return postJson("/admin/usergroup", payload, { params });
 };
 
 export const updateUserGroup = async (
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withSession({ clientid: payload.clientid as ParamValue });
+	const params = withAccessMelpid({
+		clientid: payload.clientid as ParamValue,
+	});
 	return putJson("/admin/usergroup", payload, { params });
 };
 
@@ -400,7 +506,7 @@ export const deleteUserGroup = async (
 	groupid: string,
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	return del(`/admin/usergroup/${groupid}`, { params });
 };
 
@@ -408,8 +514,11 @@ export const deleteUserGroups = async (
 	groupids: string[],
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
-	const body = { ids: groupids };
+	const params = withAccessMelpid({ clientid });
+	const body = {
+		clientid: Number(clientid),
+		keys: groupids,
+	};
 	return postJson("/admin/usergroup/deleteAll", body, { params });
 };
 
@@ -417,7 +526,7 @@ export const fetchUserGroupById = async (
 	groupid: string,
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	const raw = await get(`/admin/usergroup/${groupid}`, { params });
 	return decodeResponse(raw);
 };
@@ -428,7 +537,7 @@ export const fetchUserGroupMembers = async (
 	page = 1,
 	size = 20,
 ): Promise<unknown> => {
-	const params = withSession({ clientid, page, size });
+	const params = withAccessMelpid({ clientid, page, size });
 	const raw = await get(`/admin/usergroup/${groupid}/member`, { params });
 	return decodeResponse(raw);
 };
@@ -437,7 +546,7 @@ export const fetchUserGroupPolicies = async (
 	groupid: string,
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	const raw = await get(`/admin/usergroup/${groupid}/policy`, { params });
 	return decodeResponse(raw);
 };
@@ -447,7 +556,7 @@ export const addUserGroupMembers = async (
 	clientid: string,
 	members: unknown,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	return postJson(`/admin/usergroup/${groupid}/add`, members, { params });
 };
 
@@ -456,16 +565,20 @@ export const removeUserGroupMember = async (
 	clientid: string,
 	participantid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	return del(`/admin/usergroup/${groupid}/${participantid}/remove`, { params });
 };
 
 export const removeUserGroupMembers = async (
 	groupid: string,
+	clientid: string,
 	memberIds: string[],
 ): Promise<unknown> => {
-	const params = withSession();
-	const body = { ids: memberIds };
+	const params = withAccessMelpid({ clientid, groupid });
+	const body = {
+		clientid: Number(clientid),
+		keys: memberIds,
+	};
 	return postJson(`/admin/usergroup/${groupid}/participants/remove`, body, {
 		params,
 	});
@@ -484,7 +597,7 @@ export const fetchPolicies = async ({
 	count?: number;
 	search?: string;
 }): Promise<unknown> => {
-	const params = withSession({ clientid, page, count, search });
+	const params = withAccessMelpid({ clientid, page, count, search });
 	const raw = await get("/admin/policy/list", { params });
 	return decodeResponse(raw);
 };
@@ -493,15 +606,28 @@ export const fetchPolicyById = async (
 	policyid: string,
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid });
+	const params = withAccessMelpid({ clientid });
 	const raw = await get(`/admin/policy/${policyid}`, { params });
+	return decodeResponse(raw);
+};
+
+export const fetchPolicyFeatures = async (
+	clientid?: string,
+): Promise<unknown> => {
+	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
+	const params = withAccessMelpid({
+		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
+	});
+	const raw = await get("/admin/feature", { params });
 	return decodeResponse(raw);
 };
 
 export const createPolicy = async (
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withSession({ clientid: payload.clientid as ParamValue });
+	const params = withAccessMelpid({
+		clientid: payload.clientid as ParamValue,
+	});
 	return postJson("/admin/policy", payload, { params });
 };
 
@@ -509,18 +635,28 @@ export const updatePolicy = async (
 	policyid: string,
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid({
+		clientid: payload.clientid as ParamValue,
+	});
 	return postJson(`/admin/policy/${policyid}/name`, payload, { params });
 };
 
 export const deletePolicy = async (policyid: string): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return del(`/admin/policy/${policyid}`, { params });
 };
 
-export const deletePolicies = async (policyIds: string[]): Promise<unknown> => {
-	const params = withSession();
-	const body = { ids: policyIds };
+export const deletePolicies = async (
+	policyIds: string[],
+	clientid?: string,
+): Promise<unknown> => {
+	const params = withAccessMelpid({
+		clientid: clientid ? Number(clientid) : undefined,
+	});
+	const body = {
+		clientid: clientid ? Number(clientid) : undefined,
+		keys: policyIds,
+	};
 	return postJson("/admin/policy/deleteAll", body, { params });
 };
 
@@ -528,7 +664,7 @@ export const assignPolicy = async (
 	policyid: string,
 	entities: unknown,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return postJson(`/admin/policy/${policyid}/add`, entities, { params });
 };
 
@@ -536,7 +672,7 @@ export const revokePolicy = async (
 	policyid: string,
 	activeid: string,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return del(`/admin/policy/${policyid}/${activeid}`, { params });
 };
 
@@ -544,21 +680,21 @@ export const revokePolicies = async (
 	policyid: string,
 	activeids: unknown,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return postJson(`/admin/policy/${policyid}/revoke`, activeids, { params });
 };
 
 export const assignMultiplePolicies = async (
 	payload: unknown,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return postJson("/admin/policy/entity/addAll", payload, { params });
 };
 
 export const removeMultiplePolicies = async (
 	payload: unknown,
 ): Promise<unknown> => {
-	const params = withSession();
+	const params = withAccessMelpid();
 	return postJson("/admin/policy/entity/removeAll", payload, { params });
 };
 

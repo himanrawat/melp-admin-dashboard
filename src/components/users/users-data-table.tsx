@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { IconDots, IconUserCheck, IconUserOff, IconKey } from "@tabler/icons-react"
+import { IconDots, IconUserCheck, IconUserOff, IconKey, IconEye, IconPencil } from "@tabler/icons-react"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,13 +23,12 @@ export const ALL_COLUMNS: { key: ColKey; label: string }[] = [
   { key: "department",  label: "Department" },
   { key: "designation", label: "Designation" },
   { key: "location",    label: "Location" },
-  { key: "status",      label: "Status" },
   { key: "joinedAt",    label: "Joined" },
   { key: "actions",     label: "Actions" },
 ]
 
 export const DEFAULT_VISIBLE_COLS: ColKey[] = [
-  "name", "email", "status", "joinedAt", "actions",
+  "name", "email", "department", "joinedAt", "actions",
 ]
 
 // ── Status badge ───────────────────────────────────────────
@@ -65,8 +64,8 @@ function RowActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setViewOpen(true)}>View</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setEditOpen(true)}>Edit</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setViewOpen(true)}><IconEye className="size-4 mr-2" /> View Details</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setEditOpen(true)}><IconPencil className="size-4 mr-2" /> Edit User</DropdownMenuItem>
           {user.status === "active" ? (
             <DropdownMenuItem
               onSelect={() => onToggleStatus(user.id, "inactive")}
@@ -95,18 +94,24 @@ function RowActions({
 export function UsersDataTable({
   users,
   visibleCols,
-  showStatusColumn = false,
+  loading,
   onToggleStatus,
   onEdited,
+  selectable,
+  selectedKeys,
+  onSelectionChange,
 }: {
   users: User[]
   visibleCols: Set<ColKey>
-  showStatusColumn?: boolean
   tab?: string
+  loading?: boolean
   onAdd?: () => void
   onInvite?: () => void
   onToggleStatus: (id: string, status: "active" | "inactive") => void
   onEdited?: (updated: User) => void
+  selectable?: boolean
+  selectedKeys?: Set<string>
+  onSelectionChange?: (keys: Set<string>) => void
 }) {
   const handleEdited = onEdited ?? (() => {})
 
@@ -114,6 +119,7 @@ export function UsersDataTable({
     name: {
       id: "name",
       header: "Name",
+      sticky: true,
       accessor: (u) => (
         <div className="flex items-center gap-3">
           <div className="relative size-8 shrink-0">
@@ -193,7 +199,7 @@ export function UsersDataTable({
   const columns = ALL_COLUMNS
     .filter((c) => {
       if (!visibleCols.has(c.key)) return false
-      if (c.key === "status" && !showStatusColumn) return false
+      if (c.key === "status") return false
       return true
     })
     .map((c) => allColDefs[c.key])
@@ -203,8 +209,14 @@ export function UsersDataTable({
       columns={columns}
       data={users}
       rowKey={(u) => u.id}
+      loading={loading}
+      loadingRows={8}
       emptyState={<span>No users found.</span>}
       paginated
+      selectable={selectable}
+      selectedKeys={selectedKeys}
+      onSelectionChange={onSelectionChange}
+      rowClassName={(u) => u.status === "inactive" ? "row-inactive" : undefined}
     />
   )
 }
