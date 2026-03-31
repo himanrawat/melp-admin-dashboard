@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { LogoShort } from "@/assets/logo-short"
+import { Logo } from "@/assets/logo"
 import { useAuth } from "@/context/auth-context"
 
 export function LoginPage() {
@@ -45,11 +45,8 @@ export function LoginPage() {
     <div className="min-h-screen flex bg-background">
       {/* Left panel — branding */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between bg-foreground text-background p-12">
-        <div className="flex items-center gap-3">
-          <div className="size-10 shrink-0">
-            <LogoShort className="size-10" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-white">melp</span>
+        <div className="h-10 w-fit">
+          <Logo className="h-full w-auto text-white" />
         </div>
 
         <div>
@@ -68,11 +65,8 @@ export function LoginPage() {
       {/* Right panel — form */}
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
         {/* Mobile logo */}
-        <div className="flex items-center gap-3 mb-10 lg:hidden">
-          <div className="size-10 shrink-0">
-            <LogoShort className="size-10" />
-          </div>
-          <span className="text-xl font-bold tracking-tight">melp</span>
+        <div className="mb-10 h-10 w-fit lg:hidden">
+          <Logo className="h-full w-auto text-foreground" />
         </div>
 
         <div className="w-full max-w-sm">

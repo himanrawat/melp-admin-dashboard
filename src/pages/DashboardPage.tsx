@@ -2,7 +2,7 @@ import { StatCards } from "@/components/dashboard/stat-cards"
 import { UserGrowthChart } from "@/components/dashboard/user-growth-chart"
 import { UserStatusBreakdown } from "@/components/dashboard/user-status-breakdown"
 import { RecentRegistrations } from "@/components/dashboard/recent-registrations"
-import { RecentActivities } from "@/components/dashboard/recent-activities"
+import { AuditLogsSection } from "@/components/dashboard/audit-logs-section"
 import { DomainOverview } from "@/components/dashboard/domain-overview"
 import { AccessSummary } from "@/components/dashboard/access-summary"
 import { PaymentsOverview } from "@/components/dashboard/payments-overview"
@@ -46,8 +46,8 @@ export function DashboardPage() {
         <AccessSummary />
       </div>
 
-      {/* Recent activities: full width */}
-      <RecentActivities />
+      {/* Audit logs: full width */}
+      <AuditLogsSection />
 
     </div>
   )
