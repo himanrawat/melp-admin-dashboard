@@ -1,4 +1,4 @@
-import { get, postJson, putJson, del } from "./http";
+import { ApiRequestError, get, postJson, putJson, del } from "./http";
 import { loadStoredAuth, decryptWithKey } from "./auth";
 import type { NormalizedList } from "@/types";
 
@@ -6,11 +6,11 @@ type ParamValue = string | number | boolean | null | undefined;
 type Params = Record<string, ParamValue>;
 
 const withSession = (params: Params = {}): Params => {
-	// Auth is handled via Authorization: Bearer <JWT> header in http.ts.
-	// Keep sessionid out of query params. Access-management endpoints selectively
-	// add melpid below to match the legacy SPA contract without reintroducing
-	// session-based auth failures.
-	return { ...params };
+	// Access-management endpoints still expect the legacy session id in query
+	// params even though the SPA also sends a Bearer token.
+	const auth = loadStoredAuth();
+	const sessionid = auth?.sessionid?.trim();
+	return sessionid ? { ...params, sessionid } : { ...params };
 };
 
 const getEncryptedMelpid = (): string | undefined => {
@@ -24,7 +24,8 @@ const getEncryptedMelpid = (): string | undefined => {
 
 const withAccessMelpid = (params: Params = {}): Params => {
 	const melpid = getEncryptedMelpid();
-	return melpid ? { ...params, melpid } : { ...params };
+	const withSessionParams = withSession(params);
+	return melpid ? { ...withSessionParams, melpid } : { ...withSessionParams };
 };
 
 const decodeResponse = async (res: unknown): Promise<unknown> => {
@@ -720,8 +721,27 @@ export const bulkInviteUsers = async (
 		method: "POST",
 		body: formData,
 	});
-	if (!res.ok) throw new Error(`Request failed (${res.status})`);
-	return res.json() as Promise<unknown>;
+
+	const parseBody = async (): Promise<unknown> => {
+		const text = await res.text().catch(() => "");
+		if (!text) return null;
+		try {
+			return JSON.parse(text) as unknown;
+		} catch {
+			return text;
+		}
+	};
+
+	const responseBody = await parseBody();
+	if (!res.ok) {
+		throw new ApiRequestError(`Bulk invite request failed (${res.status}).`, {
+			status: res.status,
+			body: responseBody,
+		});
+	}
+
+	if (res.status === 204) return null;
+	return responseBody;
 };
 
 export const manualInviteUsers = async (users: unknown[]): Promise<unknown> => {

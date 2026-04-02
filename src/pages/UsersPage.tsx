@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { IconUserPlus, IconUpload, IconLoader2 } from "@tabler/icons-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -8,14 +9,44 @@ import { type User } from "@/components/users/users-data"
 import { UsersToolbar, type UserFilters, EMPTY_FILTERS } from "@/components/users/users-toolbar"
 import { UsersDataTable, DEFAULT_VISIBLE_COLS, type ColKey } from "@/components/users/users-data-table"
 import { AddUserInline, type AddUserDraft } from "@/components/users/add-user-inline"
+import { BulkUploadInline } from "@/components/users/bulk-upload-inline"
 import { InviteDialog } from "@/components/users/user-confirm-dialogs"
 import { fetchUsers, fetchAdmins, manualInviteUsers, bulkInviteUsers } from "@/api/admin"
+import { getErrorDescription, getStatusCodeFromError } from "@/components/access-management/runtime"
 import { useAuth } from "@/context/auth-context"
 
 // ── Main page ─────────────────────────────────────────────
 
 export function UsersPage() {
   const { selectedClient } = useAuth()
+
+  const getBulkUploadFeedback = (error: unknown): string => {
+    const statusCode = getStatusCodeFromError(error)
+    const apiMessage = getErrorDescription(error)
+
+    if (apiMessage && !/^\d{3}$/.test(apiMessage.trim())) {
+      return apiMessage
+    }
+
+    switch (statusCode) {
+      case 204:
+        return "The file was received, but no users were added. Check that it contains valid user rows and try again."
+      case 400:
+        return "We couldn't process this file. Check the template format and required columns, then try again."
+      case 401:
+        return "Your session expired while uploading. Sign in again and retry the upload."
+      case 403:
+        return "You don't have permission to bulk upload users for this account."
+      case 404:
+        return "The bulk upload service is unavailable right now. Try again in a moment."
+      case 409:
+        return "Some users in this file already exist or conflict with current records. Review the file and retry."
+      case 500:
+        return "We couldn't complete the bulk upload right now. Try again in a moment."
+      default:
+        return "Bulk upload failed. Please review the file and try again."
+    }
+  }
 
   // ── Data state ─────────────────────────────────────────
   const [usersByCategory, setUsersByCategory] = useState<{
@@ -34,11 +65,11 @@ export function UsersPage() {
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(DEFAULT_VISIBLE_COLS))
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [addOpen, setAddOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   // ── Dialog / upload state ─────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false)
   const [bulkUploading, setBulkUploading] = useState(false)
-  const bulkInputRef = useRef<HTMLInputElement>(null)
 
   const MIN_COLS = 4
 
@@ -368,14 +399,12 @@ export function UsersPage() {
     const hasAllowedType = allowedTypes.has(file.type)
 
     if (!(hasAllowedExt || hasAllowedType)) {
-      alert("Please upload CSV or Excel file only")
-      if (bulkInputRef.current) bulkInputRef.current.value = ""
+      toast.error("Please upload a CSV or Excel file only.")
       return
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Maximum upload file size is 5 MB")
-      if (bulkInputRef.current) bulkInputRef.current.value = ""
+      toast.error("Maximum upload file size is 5 MB.")
       return
     }
 
@@ -383,13 +412,12 @@ export function UsersPage() {
       setBulkUploading(true)
       await bulkInviteUsers(file, true)
       await loadUsers()
-      alert("File uploaded successfully.")
+      setBulkOpen(false)
+      toast.success("Users were uploaded successfully.")
     } catch (err) {
-      const message = (err as Error)?.message || "Bulk upload failed"
-      alert(message)
+      toast.error(getBulkUploadFeedback(err))
     } finally {
       setBulkUploading(false)
-      if (bulkInputRef.current) bulkInputRef.current.value = ""
     }
   }
 
@@ -426,21 +454,12 @@ export function UsersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            ref={bulkInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) void handleBulkFileSelected(file)
-            }}
-          />
           <Button
             variant="outline"
             size="sm"
             disabled={bulkUploading}
-            onClick={() => bulkInputRef.current?.click()}
+            onClick={() => { setBulkOpen(!bulkOpen); setAddOpen(false) }}
+            className={bulkOpen ? "bg-muted" : ""}
           >
             {bulkUploading ? <IconLoader2 className="size-4 mr-1.5 animate-spin" /> : <IconUpload className="size-4 mr-1.5" />}
             Bulk Upload
@@ -448,7 +467,7 @@ export function UsersPage() {
           <Button
             size="sm"
             className="melp-radius"
-            onClick={() => setAddOpen(!addOpen)}
+            onClick={() => { setAddOpen(!addOpen); setBulkOpen(false) }}
             variant={addOpen ? "secondary" : "default"}
           >
             <IconUserPlus className="size-4 mr-1.5" />
@@ -457,13 +476,22 @@ export function UsersPage() {
         </div>
       </div>
 
+      {/* Inline bulk-upload section */}
+      {bulkOpen && (
+        <BulkUploadInline
+          onFileSelected={(file) => void handleBulkFileSelected(file)}
+          onCancel={() => setBulkOpen(false)}
+          uploading={bulkUploading}
+        />
+      )}
+
       {/* Inline add-user section — hides tabs/table when open */}
       {addOpen ? (
         <AddUserInline
           onSubmitAll={handleAdd}
           onCancel={() => setAddOpen(false)}
         />
-      ) : (
+      ) : bulkOpen ? null : (
 
       /* Tabs */
       <Tabs value={activeTab} onValueChange={setActiveTab}>

@@ -394,7 +394,12 @@ export function AccessDomainsPage() {
 
           <StatusState
             code={detailStatusCode}
-            description={detailStatusMessage}
+            title={detailStatusCode === 204 ? "This policy is no longer available in domain access" : undefined}
+            description={
+              detailStatusCode === 204
+                ? "It may have been detached from this domain or is no longer available from the backend."
+                : detailStatusMessage
+            }
             actionSlot={<StatusStateActions secondaryLabel="Back" onSecondaryClick={() => setView("overview")} />}
           />
         </div>
@@ -509,7 +514,7 @@ export function AccessDomainsPage() {
               </div>
             </div>
 
-            {attachStatusCode ? (
+            {attachStatusCode && attachStatusCode !== 204 ? (
               <StatusState code={attachStatusCode} description={attachStatusMessage} />
             ) : (
               <DataTable<AccessPolicy>
@@ -527,8 +532,13 @@ export function AccessDomainsPage() {
                     title={attachSearch ? "No attachable policies match this search" : "No attachable policies available yet"}
                     description={
                       attachSearch
-                        ? "Try another search term."
-                        : "The attach table is ready for live policy data, but nothing is available right now."
+                        ? "Try another search term or clear the filter."
+                        : "All available policies may already be attached, or no policies have been created for this domain yet."
+                    }
+                    actionSlot={
+                      attachSearch ? (
+                        <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setAttachSearch("")} />
+                      ) : undefined
                     }
                   />
                 }
@@ -595,11 +605,10 @@ export function AccessDomainsPage() {
         </div>
       </div>
 
-      {overviewStatusCode ? (
+      {overviewStatusCode && overviewStatusCode !== 204 ? (
         <StatusState
           code={overviewStatusCode}
-          title={overviewStatusCode === 204 ? "No domain policies returned yet" : undefined}
-          description={overviewStatusCode === 204 ? undefined : overviewStatusMessage}
+          description={overviewStatusMessage}
           actionSlot={<StatusStateActions primaryLabel="Open Attach Flow" onPrimaryClick={() => setView("attach")} />}
         />
       ) : (
@@ -619,8 +628,15 @@ export function AccessDomainsPage() {
               title={search ? "No attached policies match this search" : "No policies attached to this domain"}
               description={
                 search
-                  ? "Try another keyword or clear the search."
-                  : "Attach a policy to this domain to begin managing domain-level access."
+                  ? "Try another keyword or clear the search to see the full attached-policy list."
+                  : "Attach a policy to this domain to start enforcing domain-level access rules."
+              }
+              actionSlot={
+                search ? (
+                  <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setSearch("")} />
+                ) : (
+                  <StatusStateActions primaryLabel="Attach Policy" onPrimaryClick={() => setView("attach")} />
+                )
               }
             />
           }

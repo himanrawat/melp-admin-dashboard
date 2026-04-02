@@ -869,7 +869,12 @@ export function AccessGroupsPage() {
 
           <StatusState
             code={policyDetailStatusCode}
-            description={policyDetailStatusMessage}
+            title={policyDetailStatusCode === 204 ? "This policy is no longer available to the group" : undefined}
+            description={
+              policyDetailStatusCode === 204
+                ? "It may have been removed from the access library or is no longer assigned to this group."
+                : policyDetailStatusMessage
+            }
             actionSlot={<StatusStateActions secondaryLabel="Back" onSecondaryClick={() => setView("detail")} />}
           />
         </div>
@@ -951,7 +956,7 @@ export function AccessGroupsPage() {
           </Badge>
         </div>
 
-        {attachStatusCode ? (
+        {attachStatusCode && attachStatusCode !== 204 ? (
           <StatusState
             code={attachStatusCode}
             title="Unable to load attachable policies"
@@ -974,7 +979,12 @@ export function AccessGroupsPage() {
                 description={
                   attachSearch
                     ? "Try another keyword or clear the search."
-                    : "This table is ready for the live policy library, but nothing is available right now."
+                    : "There are no unassigned policies available for this group right now."
+                }
+                actionSlot={
+                  attachSearch ? (
+                    <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setAttachSearch("")} />
+                  ) : undefined
                 }
               />
             }
@@ -1131,7 +1141,7 @@ export function AccessGroupsPage() {
                   className="pl-9"
                 />
               </div>
-              {userCandidatesStatusCode ? (
+              {userCandidatesStatusCode && userCandidatesStatusCode !== 204 ? (
                 <StatusState code={userCandidatesStatusCode} description={userCandidatesStatusMessage} />
               ) : (
                 <DataTable<AccessUser>
@@ -1152,7 +1162,12 @@ export function AccessGroupsPage() {
                       description={
                         userDialogSearch
                           ? "Try another keyword or clear the search."
-                          : "This dialog is ready for live user search results in the current domain."
+                          : "No eligible users are available to add to this group right now."
+                      }
+                      actionSlot={
+                        userDialogSearch ? (
+                          <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setUserDialogSearch("")} />
+                        ) : undefined
                       }
                     />
                   }
@@ -1379,11 +1394,10 @@ export function AccessGroupsPage() {
         </Badge>
       </div>
 
-      {groupsStatusCode ? (
+      {groupsStatusCode && groupsStatusCode !== 204 ? (
         <StatusState
           code={groupsStatusCode}
-          title={groupsStatusCode === 204 ? "No user groups returned yet" : undefined}
-          description={groupsStatusCode === 204 ? undefined : groupsStatusMessage}
+          description={groupsStatusMessage}
           actionSlot={<StatusStateActions primaryLabel="Open Create Group" onPrimaryClick={openCreateEditor} />}
         />
       ) : (
@@ -1403,8 +1417,15 @@ export function AccessGroupsPage() {
               title={groupSearch ? "No groups match this search" : "No user groups created yet"}
               description={
                 groupSearch
-                  ? "Try another keyword or clear the search."
-                  : "Create your first user group to start assigning members and policies."
+                  ? "Try another keyword or clear the search to see all user groups."
+                  : "Create your first user group to organize members and attach shared access policies."
+              }
+              actionSlot={
+                groupSearch ? (
+                  <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setGroupSearch("")} />
+                ) : (
+                  <StatusStateActions primaryLabel="Create User Group" onPrimaryClick={openCreateEditor} />
+                )
               }
             />
           }

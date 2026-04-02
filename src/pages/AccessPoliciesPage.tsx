@@ -20,6 +20,7 @@ import {
   fetchUserGroups,
   fetchUsers,
   revokePolicies,
+  updatePolicy,
 } from "@/api/admin"
 import {
   getErrorDescription,
@@ -343,8 +344,15 @@ export function AccessPoliciesPage() {
   }, [search, selectedClient])
 
   useEffect(() => {
-    if (!(view === "builder" || view === "metadata") || !selectedClient) return
-    if (moduleLibrary.length > 0 || libraryLoading) return
+    setModuleLibrary([])
+    setLibraryStatusCode(undefined)
+    setLibraryStatusMessage(undefined)
+    setLibrarySearch("")
+    setSelectedFeatureLimits({})
+  }, [selectedClient])
+
+  useEffect(() => {
+    if (!selectedClient) return
 
     let cancelled = false
 
@@ -381,7 +389,7 @@ export function AccessPoliciesPage() {
     return () => {
       cancelled = true
     }
-  }, [libraryLoading, moduleLibrary.length, selectedClient, view])
+  }, [selectedClient])
 
   useEffect(() => {
     if (view !== "attach" || !selectedPolicy || !selectedClient) return
@@ -565,13 +573,21 @@ export function AccessPoliciesPage() {
     setSaving(true)
 
     try {
-      await savePolicyRequest({
+      const payload = {
         clientid: Number(selectedClient),
         policyName: name,
         desc: description,
         modules,
-        ...(builderMode === "edit" && editingPolicyId ? { pkid: editingPolicyId } : {}),
-      })
+      }
+
+      if (builderMode === "edit" && editingPolicyId) {
+        await updatePolicy(editingPolicyId, {
+          ...payload,
+          pkid: editingPolicyId,
+        })
+      } else {
+        await savePolicyRequest(payload)
+      }
 
       toast.success(builderMode === "edit" ? "Policy updated." : "Policy created.")
       const raw = await fetchPolicies({ clientid: selectedClient, count: 200, page: 1, search })
@@ -730,7 +746,12 @@ export function AccessPoliciesPage() {
 
           <StatusState
             code={detailStatusCode}
-            description={detailStatusMessage}
+            title={detailStatusCode === 204 ? "This policy is no longer available" : undefined}
+            description={
+              detailStatusCode === 204
+                ? "It may have been deleted, moved out of this domain, or is no longer returned by the backend."
+                : detailStatusMessage
+            }
             actionSlot={
               <StatusStateActions
                 secondaryLabel="Back"
@@ -873,15 +894,33 @@ export function AccessPoliciesPage() {
                 />
               </div>
             </div>
-            {libraryStatusCode ? (
+            {libraryStatusCode && libraryStatusCode !== 204 ? (
               <StatusState
                 code={libraryStatusCode}
                 compact
                 description={libraryStatusMessage}
               />
             ) : libraryLoading ? (
-              <div className="flex items-center justify-center rounded-md border p-8">
-                <IconLoader2 className="size-6 animate-spin text-muted-foreground" />
+              <div className="space-y-3 rounded-md border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <IconLoader2 className="size-4 animate-spin text-muted-foreground" />
+                  Preparing permission library...
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Loading modules and feature rules for the selected domain.
+                </p>
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="rounded-md border border-dashed p-4">
+                      <div className="h-4 w-40 rounded bg-muted" />
+                      <div className="mt-2 h-3 w-64 rounded bg-muted/80" />
+                      <div className="mt-4 grid gap-2">
+                        <div className="h-12 rounded bg-muted/60" />
+                        <div className="h-12 rounded bg-muted/60" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : filteredLibrary.length === 0 ? (
               <StatusState
@@ -889,8 +928,13 @@ export function AccessPoliciesPage() {
                 title={librarySearch ? "No modules match this search" : "No modules available yet"}
                 description={
                   librarySearch
-                    ? "Try another search term."
-                    : "The policy feature library is currently empty for this domain."
+                    ? "Try another search term or clear the filter."
+                    : "No permission modules are available for this domain yet. You can’t create a policy until the feature library is published."
+                }
+                actionSlot={
+                  librarySearch ? (
+                    <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setLibrarySearch("")} />
+                  ) : undefined
                 }
               />
             ) : (
@@ -1131,7 +1175,7 @@ export function AccessPoliciesPage() {
           </Badge>
         </div>
 
-        {attachStatusCode ? (
+        {attachStatusCode && attachStatusCode !== 204 ? (
           <StatusState
             code={attachStatusCode}
             title={`Unable to load ${attachType.toLowerCase()} candidates`}
@@ -1153,8 +1197,13 @@ export function AccessPoliciesPage() {
                 title={attachSearch ? `No ${attachType.toLowerCase()}s match this search` : `No ${attachType.toLowerCase()} candidates available`}
                 description={
                   attachSearch
-                    ? "Try another search term."
+                    ? "Try another search term or clear the filter."
                     : "This table is waiting for live attachment candidates from the backend."
+                }
+                actionSlot={
+                  attachSearch ? (
+                    <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setAttachSearch("")} />
+                  ) : undefined
                 }
               />
             }
@@ -1211,11 +1260,10 @@ export function AccessPoliciesPage() {
         </div>
       </div>
 
-      {policiesStatusCode ? (
+      {policiesStatusCode && policiesStatusCode !== 204 ? (
         <StatusState
           code={policiesStatusCode}
-          title={policiesStatusCode === 204 ? "No policy content available yet" : undefined}
-          description={policiesStatusCode === 204 ? undefined : policiesStatusMessage}
+          description={policiesStatusMessage}
           actionSlot={<StatusStateActions primaryLabel="Open Create Policy" onPrimaryClick={openCreateBuilder} />}
         />
       ) : (
@@ -1232,8 +1280,15 @@ export function AccessPoliciesPage() {
               title={search ? "No policies match this search" : "No policies created yet"}
               description={
                 search
-                  ? "Try another keyword or clear the search."
-                  : "Create your first policy to start attaching access rules to users, groups, and domains."
+                  ? "Try another keyword or clear the search to see your full policy catalog."
+                  : "Create your first policy to define access rules, then attach it to users, groups, or domains."
+              }
+              actionSlot={
+                search ? (
+                  <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setSearch("")} />
+                ) : (
+                  <StatusStateActions primaryLabel="Create Policy" onPrimaryClick={openCreateBuilder} />
+                )
               }
             />
           }

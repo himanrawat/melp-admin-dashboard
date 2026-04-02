@@ -31,16 +31,18 @@ type StatusStateConfig = {
   description: string
   code: string
   tone: StatusTone
+  showCode?: boolean
 }
 
 const codeStateMap: Record<StatusStateCode, StatusStateConfig> = {
   204: {
     icon: PackageOpen,
-    title: "Nothing here yet",
+    title: "No records yet",
     description:
-      "This section doesn't have any data to display right now. It will populate once content becomes available.",
+      "This area is ready, but nothing has been created or assigned here yet.",
     code: "204",
     tone: "neutral",
+    showCode: false,
   },
   400: {
     icon: OctagonAlert,
@@ -124,6 +126,7 @@ export function StatusState({
     preset?.description ??
     "There's nothing to display here at the moment. Check back later or try a different action."
   const finalCode = preset?.code
+  const showCode = preset?.showCode ?? true
   const tone = preset?.tone ?? "neutral"
 
   return (
@@ -145,7 +148,7 @@ export function StatusState({
             <Icon className={compact ? "size-5" : "size-6"} />
           </div>
         </EmptyMedia>
-        {finalCode ? (
+        {finalCode && showCode ? (
           <p className={cn(
             "font-semibold tabular-nums tracking-tight text-foreground",
             compact ? "text-3xl" : "text-4xl"
