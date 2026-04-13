@@ -318,10 +318,16 @@ export function mapPolicySummary(raw: unknown): AccessPolicy {
   const modules = Array.isArray(record.modules) ? record.modules.map((module) => mapAccessModule(module)) : []
   const entities = Array.isArray(record.entities) ? record.entities.map((entity) => mapPolicyEntity(entity)) : []
   const name = asString(record.policyName || record.policyname || record.name, "Untitled Policy")
+  const pkid = asString(record.pkid || record.id)
+  const policyApiId = asString(record.policyId || record.policyid)
+  const backendPolicyId = asString(pkid || policyApiId, name)
+  const uiPolicyId = asString(policyApiId || pkid, name)
 
   return {
-    id: asString(record.pkid || record.policyId || record.policyid, name),
-    backendPolicyId: asString(record.pkid || record.policyId || record.policyid, name),
+    id: uiPolicyId,
+    backendPolicyId,
+    policyApiId: policyApiId || undefined,
+    pkid: pkid || undefined,
     name,
     description: asString(record.desc || record.policyDesc || record.description, "-"),
     createdAt: formatAccessDate(record.createdAt || record.createDate || record.creationTime),

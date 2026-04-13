@@ -274,7 +274,7 @@ export function AccessDomainsPage() {
     }
   }, [attachSearch, selectedClient, view])
 
-  const loadPolicyDetail = async (policyId: string) => {
+  const loadPolicyDetail = async (policy: AccessPolicy) => {
     if (!selectedClient) return
 
     setView("policy-detail")
@@ -283,7 +283,26 @@ export function AccessDomainsPage() {
     setDetailStatusMessage(undefined)
 
     try {
-      const raw = await fetchPolicyById(policyId, selectedClient)
+      const candidates = [policy.pkid, policy.backendPolicyId, policy.policyApiId, policy.id]
+        .filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
+      let raw: unknown = null
+      let lastError: unknown = null
+
+      for (const candidate of candidates) {
+        try {
+          raw = await fetchPolicyById(candidate, selectedClient)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error
+          const status = getStatusCodeFromError(error)
+          if (status !== 401 && status !== 404) {
+            throw error
+          }
+        }
+      }
+
+      if (lastError) throw lastError
 
       if (raw === null) {
         setSelectedPolicy(null)
@@ -616,7 +635,7 @@ export function AccessDomainsPage() {
           columns={policyColumns}
           data={filteredPolicies}
           rowKey={(policy) => policy.id}
-          onRowClick={(policy) => void loadPolicyDetail(policy.id)}
+          onRowClick={(policy) => void loadPolicyDetail(policy)}
           loading={overviewLoading}
           paginated
           selectable

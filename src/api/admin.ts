@@ -28,6 +28,11 @@ const withAccessMelpid = (params: Params = {}): Params => {
 	return melpid ? { ...withSessionParams, melpid } : { ...withSessionParams };
 };
 
+const withLegacyAccessParams = (params: Params = {}): Params => {
+	const melpid = getEncryptedMelpid();
+	return melpid ? { ...params, melpid } : { ...params };
+};
+
 const decodeResponse = async (res: unknown): Promise<unknown> => {
 	const auth = loadStoredAuth();
 	const obj = res as Record<string, unknown> | null;
@@ -210,6 +215,14 @@ export const fetchUsers = async ({
 	const params = withSession({ page, pagesize: pageSize });
 	const body = { clientid, category, filters, sort };
 	const raw = await postJson("/admin/userlist", body, { params });
+	return decodeResponse(raw);
+};
+
+export const fetchUserPolicyDetails = async (
+	userid: string,
+): Promise<unknown> => {
+	const params = withAccessMelpid({ userid });
+	const raw = await get(`/admin/userpolicy/${userid}`, { params });
 	return decodeResponse(raw);
 };
 
@@ -607,7 +620,7 @@ export const fetchPolicyById = async (
 	policyid: string,
 	clientid: string,
 ): Promise<unknown> => {
-	const params = withAccessMelpid({ clientid });
+	const params = withLegacyAccessParams({ clientid });
 	const raw = await get(`/admin/policy/${policyid}`, { params });
 	return decodeResponse(raw);
 };
@@ -616,7 +629,7 @@ export const fetchPolicyFeatures = async (
 	clientid?: string,
 ): Promise<unknown> => {
 	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
-	const params = withAccessMelpid({
+	const params = withLegacyAccessParams({
 		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
 	});
 	const raw = await get("/admin/feature", { params });
@@ -626,7 +639,7 @@ export const fetchPolicyFeatures = async (
 export const createPolicy = async (
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withAccessMelpid({
+	const params = withLegacyAccessParams({
 		clientid: payload.clientid as ParamValue,
 	});
 	return postJson("/admin/policy", payload, { params });
@@ -636,7 +649,7 @@ export const updatePolicy = async (
 	policyid: string,
 	payload: Record<string, unknown>,
 ): Promise<unknown> => {
-	const params = withAccessMelpid({
+	const params = withLegacyAccessParams({
 		clientid: payload.clientid as ParamValue,
 	});
 	return postJson(`/admin/policy/${policyid}/name`, payload, { params });

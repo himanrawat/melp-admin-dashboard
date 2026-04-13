@@ -31,6 +31,8 @@ export type PolicyEntity = {
 export type AccessPolicy = {
   id: string
   backendPolicyId?: string
+  policyApiId?: string
+  pkid?: string
   name: string
   description: string
   createdAt: string

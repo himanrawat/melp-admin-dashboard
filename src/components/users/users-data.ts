@@ -3,6 +3,8 @@ export type UserStatus = "active" | "inactive" | "deleted";
 
 export type User = {
 	id: string;
+	userId?: string;
+	melpid?: string;
 	name: string;
 	email: string;
 	avatar?: string;

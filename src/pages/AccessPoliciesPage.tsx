@@ -127,6 +127,10 @@ function buildPolicyRequestModules(
   }))
 }
 
+function isPolicyDescriptionValid(value: string): boolean {
+  return /^[a-zA-Z0-9\s.,()&/\-_:]+$/.test(value)
+}
+
 export function AccessPoliciesPage() {
   const { selectedClient, selectedClientName } = useAuth()
 
@@ -352,7 +356,7 @@ export function AccessPoliciesPage() {
   }, [selectedClient])
 
   useEffect(() => {
-    if (!selectedClient) return
+    if (!selectedClient || (view !== "builder" && view !== "metadata")) return
 
     let cancelled = false
 
@@ -389,7 +393,7 @@ export function AccessPoliciesPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedClient])
+  }, [selectedClient, view])
 
   useEffect(() => {
     if (view !== "attach" || !selectedPolicy || !selectedClient) return
@@ -483,7 +487,7 @@ export function AccessPoliciesPage() {
     }
   }, [attachSearch, attachType, selectedClient, selectedPolicy, view])
 
-  const loadPolicyDetail = async (policyId: string) => {
+  const loadPolicyDetail = async (policyRef: AccessPolicy | string) => {
     if (!selectedClient) return
 
     setView("detail")
@@ -493,7 +497,34 @@ export function AccessPoliciesPage() {
     setSelectedEntityKeys(new Set())
 
     try {
-      const raw = await fetchPolicyById(policyId, selectedClient)
+      const candidates =
+        typeof policyRef === "string"
+          ? [policyRef]
+          : [
+              policyRef.pkid,
+              policyRef.backendPolicyId,
+              policyRef.policyApiId,
+              policyRef.id,
+            ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
+
+      let raw: unknown = null
+      let lastError: unknown = null
+
+      for (const candidate of candidates) {
+        try {
+          raw = await fetchPolicyById(candidate, selectedClient)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error
+          const status = getStatusCodeFromError(error)
+          if (status !== 401 && status !== 404) {
+            throw error
+          }
+        }
+      }
+
+      if (lastError) throw lastError
 
       if (raw === null) {
         setSelectedPolicy(null)
@@ -529,7 +560,7 @@ export function AccessPoliciesPage() {
   const openEditBuilder = () => {
     if (!selectedPolicy) return
     setBuilderMode("edit")
-    setEditingPolicyId(selectedPolicy.id)
+    setEditingPolicyId(selectedPolicy.backendPolicyId || selectedPolicy.id)
     setDraft({
       name: selectedPolicy.name,
       description: selectedPolicy.description,
@@ -562,6 +593,21 @@ export function AccessPoliciesPage() {
 
     if (!name) {
       toast.error("Add a policy name before saving.")
+      return
+    }
+
+    if (!description) {
+      toast.error("Add a policy description before saving.")
+      return
+    }
+
+    if (description.length > 200) {
+      toast.error("Policy description must be 200 characters or fewer.")
+      return
+    }
+
+    if (!isPolicyDescriptionValid(description)) {
+      toast.error("Use only letters, numbers, spaces, and basic punctuation in the policy description.")
       return
     }
 
@@ -623,7 +669,7 @@ export function AccessPoliciesPage() {
     setDeleting(true)
 
     try {
-      await deletePolicies([selectedPolicy.id], selectedClient)
+      await deletePolicies([selectedPolicy.backendPolicyId || selectedPolicy.id], selectedClient)
       toast.success("Policy deleted.")
       setSelectedPolicy(null)
       setView("list")
@@ -669,14 +715,14 @@ export function AccessPoliciesPage() {
     setSaving(true)
 
     try {
-      await assignPolicy(selectedPolicy.id, {
+      await assignPolicy(selectedPolicy.backendPolicyId || selectedPolicy.id, {
         clientid: Number(selectedClient),
-        policyId: selectedPolicy.id,
+        policyId: selectedPolicy.backendPolicyId || selectedPolicy.id,
         add,
       })
       toast.success(`${attachType} attached.`)
       setSelectedAttachKeys(new Set())
-      await loadPolicyDetail(selectedPolicy.id)
+      await loadPolicyDetail(selectedPolicy)
       setView("detail")
     } catch (error) {
       toast.error(getErrorDescription(error) || `Unable to attach ${attachType.toLowerCase()}s right now.`)
@@ -697,10 +743,10 @@ export function AccessPoliciesPage() {
     setSaving(true)
 
     try {
-      await revokePolicies(selectedPolicy.id, revokeIds)
+      await revokePolicies(selectedPolicy.backendPolicyId || selectedPolicy.id, revokeIds)
       toast.success("Entity access removed.")
       setSelectedEntityKeys(new Set())
-      await loadPolicyDetail(selectedPolicy.id)
+      await loadPolicyDetail(selectedPolicy)
     } catch (error) {
       toast.error(getErrorDescription(error) || "Unable to remove these entity assignments right now.")
     } finally {
@@ -1059,7 +1105,7 @@ export function AccessPoliciesPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Description</Label>
+              <Label className="text-xs">Description *</Label>
               <Textarea
                 value={draft.description}
                 onChange={(event) =>
@@ -1067,7 +1113,11 @@ export function AccessPoliciesPage() {
                 }
                 placeholder="Describe who should use this policy and why it exists."
                 rows={6}
+                maxLength={200}
               />
+              <p className="text-xs text-muted-foreground">
+                Required. Max 200 characters. Use letters, numbers, spaces, and basic punctuation only.
+              </p>
             </div>
           </div>
 
@@ -1271,7 +1321,7 @@ export function AccessPoliciesPage() {
           columns={policyColumns}
           data={filteredPolicies}
           rowKey={(policy) => policy.id}
-          onRowClick={(policy) => void loadPolicyDetail(policy.id)}
+          onRowClick={(policy) => void loadPolicyDetail(policy)}
           loading={policiesLoading}
           paginated
           emptyState={

@@ -147,6 +147,8 @@ export function UsersPage() {
     fallback?: "active" | "inactive",
   ): User => ({
     id: String(raw.melpid || raw.userid || raw.userId || raw.id || raw.extension || `${fallback || "user"}-${idx}`),
+    userId: String(raw.userid || raw.userId || raw.id || ""),
+    melpid: String(raw.melpid || ""),
     name: String(raw.fullname || raw.name || raw.fullName || `${raw.firstname || ""} ${raw.lastname || ""}`.trim() || "Unknown"),
     email: String(raw.email || raw.emailid || ""),
     avatar: String(raw.imageUrl || raw.profileImage || raw.profile || raw.avatar || ""),

@@ -399,7 +399,7 @@ export function AccessGroupsPage() {
     }
   }
 
-  const loadPolicyDetail = async (policyId: string) => {
+  const loadPolicyDetail = async (policy: AccessPolicy) => {
     if (!selectedClient) return
 
     setView("policy-detail")
@@ -408,7 +408,26 @@ export function AccessGroupsPage() {
     setPolicyDetailStatusMessage(undefined)
 
     try {
-      const raw = await fetchPolicyById(policyId, selectedClient)
+      const candidates = [policy.pkid, policy.backendPolicyId, policy.policyApiId, policy.id]
+        .filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
+      let raw: unknown = null
+      let lastError: unknown = null
+
+      for (const candidate of candidates) {
+        try {
+          raw = await fetchPolicyById(candidate, selectedClient)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error
+          const status = getStatusCodeFromError(error)
+          if (status !== 401 && status !== 404) {
+            throw error
+          }
+        }
+      }
+
+      if (lastError) throw lastError
 
       if (raw === null) {
         setSelectedPolicyDetail(null)
@@ -1329,7 +1348,7 @@ export function AccessGroupsPage() {
               columns={permissionColumns}
               data={groupPolicies}
               rowKey={(policy) => keyForPolicy(policy)}
-              onRowClick={(policy) => void loadPolicyDetail(policy.id)}
+              onRowClick={(policy) => void loadPolicyDetail(policy)}
               paginated
               selectable
               selectedKeys={selectedPolicyKeys}
