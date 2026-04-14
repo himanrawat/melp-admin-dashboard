@@ -64,7 +64,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/context/auth-context"
 
 type GroupView = "list" | "editor" | "detail" | "attach" | "policy-detail"
@@ -72,7 +71,6 @@ type GroupView = "list" | "editor" | "detail" | "attach" | "policy-detail"
 type DraftGroup = {
   name: string
   description: string
-  owners: string
   members: AccessUser[]
   policies: AccessPolicy[]
 }
@@ -86,7 +84,6 @@ function createEmptyDraftGroup(): DraftGroup {
   return {
     name: "",
     description: "",
-    owners: "",
     members: [],
     policies: [],
   }
@@ -106,6 +103,12 @@ function getUserIdForCreate(user: AccessUser): string {
 
 function getParticipantId(user: AccessUser): string {
   return user.melpid || user.userId || user.id
+}
+
+function validateGroupName(name: string): string | false {
+  if (name.length < 3 || name.length > 50) return "Group name must be between 3 and 50 characters."
+  if (!/^[a-zA-Z0-9 ]+$/.test(name)) return "Group name can only contain letters, numbers, and spaces."
+  return false
 }
 
 export function AccessGroupsPage() {
@@ -155,20 +158,21 @@ export function AccessGroupsPage() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [renameDraftName, setRenameDraftName] = useState("")
+
+  const [memberDetailOpen, setMemberDetailOpen] = useState(false)
+  const [selectedMemberDetail, setSelectedMemberDetail] = useState<AccessUser | null>(null)
+
   const groupColumns: ColumnDef<AccessGroup>[] = [
     {
       id: "name",
       header: "Group Name",
       sticky: true,
       accessor: (group) => (
-        <div className="min-w-0 max-w-48">
-          <button type="button" className="block max-w-full truncate text-left font-medium">
-            {group.name}
-          </button>
-          <p className="mt-0.5 line-clamp-3 max-w-48 whitespace-normal break-words text-xs text-muted-foreground">
-            {group.description || "No description added yet."}
-          </p>
-        </div>
+        <button type="button" className="block max-w-48 truncate text-left font-medium">
+          {group.name}
+        </button>
       ),
       minWidth: "200px",
     },
@@ -191,16 +195,6 @@ export function AccessGroupsPage() {
         </Badge>
       ),
       minWidth: "140px",
-    },
-    {
-      id: "owners",
-      header: "Owners",
-      accessor: (group) => (
-        <span className="text-sm text-muted-foreground">
-          {group.owners.length > 0 ? group.owners.join(", ") : "Pending"}
-        </span>
-      ),
-      minWidth: "160px",
     },
     { id: "createdAt", header: "Created", accessor: "createdAt", minWidth: "120px" },
   ]
@@ -581,7 +575,6 @@ export function AccessGroupsPage() {
     const nextDraft: DraftGroup = {
       name: selectedGroup.name,
       description: selectedGroup.description,
-      owners: selectedGroup.owners.join(", "),
       members: groupMembers,
       policies: groupPolicies,
     }
@@ -653,10 +646,15 @@ export function AccessGroupsPage() {
     if (!selectedClient) return
 
     const name = draft.name.trim()
-    const description = draft.description.trim()
 
-    if (!name) {
-      toast.error("Add a group name before saving.")
+    const nameError = validateGroupName(name)
+    if (nameError) {
+      toast.error(nameError)
+      return
+    }
+
+    if (editorMode === "create" && draft.members.length < 2) {
+      toast.error("Add at least 2 members before creating a group.")
       return
     }
 
@@ -667,7 +665,7 @@ export function AccessGroupsPage() {
         await createUserGroup({
           clientid: Number(selectedClient),
           groupName: name,
-          description: description || "group desc",
+          description: draft.description.trim() || "group desc",
           members: draft.members.map((user) => getUserIdForCreate(user)),
           policies: draft.policies.map((policy) => policy.id),
         })
@@ -686,7 +684,7 @@ export function AccessGroupsPage() {
         clientid: Number(selectedClient),
         groupid: selectedGroup.id,
         groupName: name,
-        description,
+        description: draft.description.trim(),
       })
 
       const originalMembers = baseline?.members || []
@@ -746,7 +744,6 @@ export function AccessGroupsPage() {
       await loadGroupDetail({
         ...selectedGroup,
         name,
-        description,
       })
     } catch (error) {
       toast.error(getErrorDescription(error) || "Unable to save this user group right now.")
@@ -845,6 +842,35 @@ export function AccessGroupsPage() {
       await loadGroupDetail(selectedGroup)
     } catch (error) {
       toast.error(getErrorDescription(error) || "Unable to remove these policies right now.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRenameGroup = async () => {
+    if (!selectedGroup || !selectedClient) return
+
+    const name = renameDraftName.trim()
+    const nameError = validateGroupName(name)
+    if (nameError) {
+      toast.error(nameError)
+      return
+    }
+
+    setSaving(true)
+    try {
+      await updateUserGroup({
+        clientid: Number(selectedClient),
+        groupid: selectedGroup.id,
+        groupName: name,
+        description: selectedGroup.description,
+      })
+      toast.success("Group renamed.")
+      setRenameDialogOpen(false)
+      setSelectedGroup({ ...selectedGroup, name })
+      await loadGroups()
+    } catch (error) {
+      toast.error(getErrorDescription(error) || "Unable to rename this group right now.")
     } finally {
       setSaving(false)
     }
@@ -1044,34 +1070,23 @@ export function AccessGroupsPage() {
 
         <div className="space-y-4 rounded-md border p-4">
           <h3 className="text-sm font-semibold">Group Information</h3>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Group Name</Label>
-              <Input
-                value={draft.name}
-                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                placeholder="e.g. Audit Review Board"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Owners</Label>
-              <Input
-                value={draft.owners}
-                onChange={(event) => setDraft((current) => ({ ...current, owners: event.target.value }))}
-                placeholder="List the group owners"
-              />
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">Description</Label>
-              <Textarea
-                value={draft.description}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, description: event.target.value }))
-                }
-                placeholder="Describe the purpose and scope of this user group."
-                rows={4}
-              />
-            </div>
+          <div className="max-w-sm space-y-1.5">
+            <Label className="text-xs">Group Name</Label>
+            <Input
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="e.g. Audit Review Board"
+              maxLength={50}
+            />
+          </div>
+          <div className="max-w-sm space-y-1.5">
+            <Label className="text-xs">Description <span className="text-muted-foreground">(optional)</span></Label>
+            <Input
+              value={draft.description}
+              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+              placeholder="Brief description of this group"
+              maxLength={200}
+            />
           </div>
         </div>
 
@@ -1249,11 +1264,19 @@ export function AccessGroupsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold">{selectedGroup.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                {selectedGroup.description || "This group does not have a description yet."}
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRenameDraftName(selectedGroup.name)
+                  setRenameDialogOpen(true)
+                }}
+              >
+                <IconEdit className="mr-1.5 size-4" />
+                Rename
+              </Button>
               <Button variant="outline" size="sm" onClick={openEditEditor}>
                 <IconEdit className="mr-1.5 size-4" />
                 Edit Group
@@ -1310,6 +1333,10 @@ export function AccessGroupsPage() {
               columns={memberColumns}
               data={groupMembers}
               rowKey={(user) => keyForUser(user)}
+              onRowClick={(user) => {
+                setSelectedMemberDetail(user)
+                setMemberDetailOpen(true)
+              }}
               paginated
               selectable
               selectedKeys={selectedMemberKeys}
@@ -1363,6 +1390,62 @@ export function AccessGroupsPage() {
             />
           </TabsContent>
         </Tabs>
+
+        {/* Rename dialog */}
+        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Rename Group</DialogTitle>
+              <DialogDescription>Enter a new name for this user group.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Group Name</Label>
+              <Input
+                value={renameDraftName}
+                onChange={(e) => setRenameDraftName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleRenameGroup() }}
+                placeholder="e.g. Audit Review Board"
+                maxLength={50}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+              <Button disabled={saving} onClick={() => void handleRenameGroup()}>
+                {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Member detail dialog */}
+        <Dialog open={memberDetailOpen} onOpenChange={setMemberDetailOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{selectedMemberDetail?.name ?? "Member Detail"}</DialogTitle>
+              <DialogDescription>{selectedMemberDetail?.email ?? ""}</DialogDescription>
+            </DialogHeader>
+            {selectedMemberDetail && (
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Role</span>
+                  <span className="font-medium">{selectedMemberDetail.title}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Team / Dept</span>
+                  <span className="font-medium">{selectedMemberDetail.team}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Status</span>
+                  <Badge variant="secondary" className="border-0">{selectedMemberDetail.status}</Badge>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMemberDetailOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }

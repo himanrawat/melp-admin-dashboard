@@ -41,23 +41,7 @@ const extractTokenFromPayload = (payload: unknown): string => {
 };
 
 const IV_BYTES = new TextEncoder().encode("0123456789ABCDEF");
-const BLOCK_SIZE = 16;
 const curve = new EC("p256");
-
-const pkcs7Pad = (data: Uint8Array): Uint8Array => {
-	const pad = BLOCK_SIZE - (data.length % BLOCK_SIZE);
-	const out = new Uint8Array(data.length + pad);
-	out.set(data);
-	out.fill(pad, data.length);
-	return out;
-};
-
-const pkcs7Unpad = (data: Uint8Array): Uint8Array => {
-	if (!data.length) return data;
-	const pad = data[data.length - 1];
-	if (pad < 1 || pad > BLOCK_SIZE) return data;
-	return data.slice(0, data.length - pad);
-};
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 	const bytes = new Uint8Array(buffer);
@@ -128,7 +112,7 @@ const encryptString = async (
 	const keyBytes = new Uint8Array(
 		keyHex.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)),
 	);
-	const data = pkcs7Pad(new TextEncoder().encode(plain));
+	const data = new TextEncoder().encode(plain);
 	const cryptoKey = await crypto.subtle.importKey(
 		"raw",
 		keyBytes.buffer as ArrayBuffer,
@@ -146,12 +130,7 @@ const encryptString = async (
 
 const encryptValue = async (plain: string, keyHex: string): Promise<string> => {
 	if (!plain || !keyHex) return "";
-	try {
-		return await encryptString(plain, keyHex);
-	} catch (err) {
-		console.warn("Failed to encrypt value", err);
-		return plain;
-	}
+	return encryptString(plain, keyHex);
 };
 
 const decryptString = async (
@@ -174,8 +153,7 @@ const decryptString = async (
 		cryptoKey,
 		cipherBytes.buffer as ArrayBuffer,
 	);
-	const unpadded = pkcs7Unpad(new Uint8Array(plainBuffer));
-	return new TextDecoder().decode(unpadded).trim();
+	return new TextDecoder().decode(new Uint8Array(plainBuffer)).trim();
 };
 
 export const ensureWebSession = async (): Promise<{

@@ -17,9 +17,7 @@ const getEncryptedMelpid = (): string | undefined => {
 	const auth = loadStoredAuth();
 	const encryptedMelpid = auth?.encryptedMelpid?.trim();
 	if (encryptedMelpid) return encryptedMelpid;
-
-	const melpid = auth?.user?.melpid?.trim();
-	return melpid || undefined;
+	return undefined;
 };
 
 const withAccessMelpid = (params: Params = {}): Params => {
@@ -36,15 +34,37 @@ const withLegacyAccessParams = (params: Params = {}): Params => {
 const decodeResponse = async (res: unknown): Promise<unknown> => {
 	const auth = loadStoredAuth();
 	const obj = res as Record<string, unknown> | null;
-	if (obj && typeof obj.data === "string" && auth?.keyHex) {
+	if (!obj) return res;
+
+	// Encrypted response: data field is an AES-encrypted base64 string
+	if (typeof obj.data === "string" && auth?.keyHex) {
 		try {
 			const plain = await decryptWithKey(obj.data, auth.keyHex);
 			const parsed = JSON.parse(plain) as Record<string, unknown>;
 			return parsed?.data || parsed;
 		} catch {
-			return res;
+			// Not encrypted — fall through to the service-envelope handler below
 		}
 	}
+
+	// Unencrypted service envelope: { status: "SUCCESS", data: X }
+	// The Java API wraps responses in this shape. Strip the envelope so callers
+	// receive the payload directly (mirrors what the old PHP model does manually
+	// via `serviceResp.data` before passing data to callbacks).
+	if (obj.status === "SUCCESS" && "data" in obj) {
+		const data = obj.data;
+		if (typeof data === "string") {
+			// Some endpoints (e.g. domain policies, group policies) return data
+			// as a JSON-encoded string. Parse it; if it fails return as-is.
+			try {
+				return JSON.parse(data) as unknown;
+			} catch {
+				return data;
+			}
+		}
+		return data;
+	}
+
 	return res;
 };
 
