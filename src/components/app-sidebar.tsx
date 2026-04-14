@@ -95,7 +95,7 @@ const navItems: NavItem[] = [
 function SidebarLogo() {
   const { open } = useSidebar()
   return open ? (
-    <Logo className="w-full h-full text-sidebar-accent-foreground" />
+    <Logo className="w-44 h-full text-sidebar-accent-foreground" />
   ) : (
     <LogoShort className="w-full h-full text-sidebar-accent-foreground" />
   )
@@ -124,18 +124,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              size="lg"
-              className="data-[slot=sidebar-menu-button]:p-1.5!"
-            >
-              <SidebarLogo />
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+      <SidebarHeader className="h-16 flex items-center justify-center px-3 mb-4">
+        <SidebarLogo />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -153,6 +143,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       <SidebarMenuButton
                         tooltip={item.title}
                         isActive={isItemActive(item)}
+                        size="md"
                       >
                         <item.icon className="size-5" />
                         <span>{item.title}</span>
@@ -166,6 +157,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                             <SidebarMenuSubButton
                               asChild
                               isActive={isChildActive(child.url)}
+                              size="md"
                             >
                               <Link to={child.url}>
                                 <span>{child.title}</span>
@@ -183,6 +175,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     asChild
                     tooltip={item.title}
                     isActive={isItemActive(item)}
+                    size="md"
                   >
                     <Link to={item.url}>
                       <item.icon className="size-5" />

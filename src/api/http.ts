@@ -1,5 +1,6 @@
 import { loadStoredAuth, refreshJwtToken, updateStoredJwt } from "./auth";
 import type { AuthState } from "@/types";
+import { popupApi } from "@/components/shared/popup";
 
 export class ApiRequestError extends Error {
 	status: number;
@@ -171,8 +172,11 @@ const handleSessionExpired = (): void => {
 	localStorage.removeItem("melp_device_id");
 	localStorage.removeItem(JWT_REFRESH_TIMESTAMP_KEY);
 
-	alert("Your session has expired. Please login again to continue.");
-	window.location.href = "/login";
+	popupApi.warning(
+		"Session Expired",
+		"Your session has expired. Please login again to continue.",
+		() => { window.location.href = "/login" },
+	);
 };
 
 const parseJsonOrNull = async (response: Response): Promise<unknown> => {

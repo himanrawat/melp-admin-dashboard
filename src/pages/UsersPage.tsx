@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { usePopup } from "@/components/shared/popup"
 import { type User } from "@/components/users/users-data"
 import { UsersToolbar, type UserFilters, EMPTY_FILTERS } from "@/components/users/users-toolbar"
 import { UsersDataTable, DEFAULT_VISIBLE_COLS, type ColKey } from "@/components/users/users-data-table"
@@ -19,6 +20,7 @@ import { useAuth } from "@/context/auth-context"
 
 export function UsersPage() {
   const { selectedClient } = useAuth()
+  const { success: showSuccess } = usePopup()
 
   const getBulkUploadFeedback = (error: unknown): string => {
     const statusCode = getStatusCodeFromError(error)
@@ -72,6 +74,7 @@ export function UsersPage() {
   const [bulkUploading, setBulkUploading] = useState(false)
 
   const MIN_COLS = 4
+  const PAGE_SIZE = 200
 
   const parseUserList = (raw: unknown): Record<string, unknown>[] => {
     const data = raw as Record<string, unknown>
@@ -82,6 +85,17 @@ export function UsersPage() {
       []
 
     return Array.isArray(list) ? (list as Record<string, unknown>[]) : []
+  }
+
+  const extractTotalCount = (raw: unknown): number | undefined => {
+    const data = raw as Record<string, unknown> | null
+    const direct = data?.totalCount
+    if (typeof direct === "number" && Number.isFinite(direct)) return direct
+
+    const nested = (data?.data as Record<string, unknown> | undefined)?.totalCount
+    if (typeof nested === "number" && Number.isFinite(nested)) return nested
+
+    return undefined
   }
 
   const toStatus = (
@@ -114,6 +128,18 @@ export function UsersPage() {
       return normalized === "y" || normalized === "yes" || normalized === "1" || normalized === "admin" || normalized === "true"
     }
     return false
+  }
+
+  const isVerifiedUser = (raw: Record<string, unknown>): boolean | undefined => {
+    const value = raw.verified ?? raw.isVerified ?? raw.isverified ?? raw.emailVerified ?? raw.verifiedStatus
+    if (typeof value === "boolean") return value
+    if (typeof value === "number") return value === 1
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase()
+      if (["y", "yes", "1", "true", "verified", "active"].includes(normalized)) return true
+      if (["n", "no", "0", "false", "pending", "unverified", "inactive"].includes(normalized)) return false
+    }
+    return undefined
   }
 
   const formatDateValue = (value: unknown): string => {
@@ -159,6 +185,7 @@ export function UsersPage() {
     status: toStatus(raw, fallback),
     joinedAt: formatDateValue(raw.addedOn || raw.createdDate || raw.createdate || raw.joinedAt || ""),
     deactivateDate: formatDateValue(raw.deactived_on || raw.deactivatedOn || ""),
+    verified: isVerifiedUser(raw),
   })
 
   // ── Load users from API ────────────────────────────────
@@ -171,10 +198,41 @@ export function UsersPage() {
     setLoading(true)
     setError("")
     try {
+      const fetchUserBucket = async (
+        category: 0 | 1 | 2,
+        label: string,
+        fallback?: "active" | "inactive",
+      ): Promise<User[]> => {
+        const users: User[] = []
+        let page = 1
+        let totalCount: number | undefined
+
+        while (true) {
+          const raw = await fetchUsers({
+            page,
+            pageSize: PAGE_SIZE,
+            clientid: selectedClient,
+            category,
+          })
+          const list = parseUserList(raw)
+          totalCount ??= extractTotalCount(raw)
+
+          console.log(`[UsersPage] ${label} raw page ${page}:`, raw)
+
+          users.push(...list.map((user, idx) => mapUser(user, users.length + idx, fallback)))
+
+          if (list.length < PAGE_SIZE) break
+          if (typeof totalCount === "number" && users.length >= totalCount) break
+          page += 1
+        }
+
+        return users
+      }
+
       const [allRes, activeRes, inactiveRes, adminRes] = await Promise.allSettled([
-        fetchUsers({ page: 1, pageSize: 200, clientid: selectedClient, category: 0 }),
-        fetchUsers({ page: 1, pageSize: 200, clientid: selectedClient, category: 1 }),
-        fetchUsers({ page: 1, pageSize: 200, clientid: selectedClient, category: 2 }),
+        fetchUserBucket(0, "all users"),
+        fetchUserBucket(1, "active users", "active"),
+        fetchUserBucket(2, "inactive users", "inactive"),
         fetchAdmins(selectedClient, 1),
       ])
 
@@ -190,14 +248,14 @@ export function UsersPage() {
         console.error("[UsersPage] admin users fetch failed:", adminRes.reason)
       }
 
-      const allRaw = allRes.value
-      const activeRaw = activeRes.value
-      const inactiveRaw = inactiveRes.value
       const adminRaw = adminRes.status === "fulfilled" ? adminRes.value : { list: [] }
 
-      const allUsers = parseUserList(allRaw).map((u, idx) => mapUser(u, idx))
-      const activeUsers = parseUserList(activeRaw).map((u, idx) => mapUser(u, idx, "active"))
-      const inactiveUsers = parseUserList(inactiveRaw).map((u, idx) => mapUser(u, idx, "inactive"))
+      const allUsers = allRes.value
+      const activeUsers = activeRes.value
+      const inactiveUsers = inactiveRes.value
+
+      console.log("[UsersPage] admin users raw page 1:", adminRaw)
+
       const fetchedAdminUsers = parseUserList(adminRaw).map((u, idx) => ({
         ...mapUser(u, idx),
         isAdmin: true,
@@ -209,7 +267,7 @@ export function UsersPage() {
       console.log("all (category=0):", allUsers)
       console.log("active (category=1):", activeUsers)
       console.log("inactive (category=2):", inactiveUsers)
-      console.log("admin (/admin/admins):", adminUsers)
+      console.log("admin (/admin):", adminUsers)
       console.log("counts:", {
         all: allUsers.length,
         active: activeUsers.length,
@@ -233,6 +291,26 @@ export function UsersPage() {
   }, [selectedClient])
 
   useEffect(() => { loadUsers() }, [loadUsers])
+
+  useEffect(() => {
+    if (loading || error) return
+
+    const visibleUsers = getFilteredUsers(activeTab)
+
+    console.groupCollapsed(`[UsersPage] Visible data for tab "${activeTab}"`)
+    console.log("selectedClient:", selectedClient)
+    console.log("search:", search)
+    console.log("filters:", filters)
+    console.log("bucketCounts:", {
+      all: usersByCategory.all.length,
+      active: usersByCategory.active.length,
+      inactive: usersByCategory.inactive.length,
+      admin: usersByCategory.admin.length,
+      visible: visibleUsers.length,
+    })
+    console.log("visibleUsers:", visibleUsers)
+    console.groupEnd()
+  }, [activeTab, error, filters, loading, search, selectedClient, usersByCategory])
 
   function handleToggleCol(key: ColKey) {
     setVisibleCols((prev) => {
@@ -307,7 +385,7 @@ export function UsersPage() {
     try {
       await manualInviteUsers(inviteUsers)
       await loadUsers()
-      alert(`${inviteUsers.length} user${inviteUsers.length > 1 ? "s" : ""} added successfully.`)
+      showSuccess("Users Added", `${inviteUsers.length} user${inviteUsers.length > 1 ? "s" : ""} added successfully.`)
     } catch (err) {
       throw new Error((err as Error)?.message || "Failed to add user")
     }
@@ -500,25 +578,25 @@ export function UsersPage() {
         <TabsList variant="line">
           <TabsTrigger value="all">
             All Users
-            <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {usersByCategory.all.length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="active">
             Active
-            <Badge variant="secondary" className="ml-1.5 bg-success/10 text-success border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {activeCount}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="inactive">
             Inactive
-            <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {inactiveCount}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="admin">
             Admin
-            <Badge variant="secondary" className="ml-1.5 bg-[#ee4136]/10 text-[#ee4136] border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {adminCount}
             </Badge>
           </TabsTrigger>

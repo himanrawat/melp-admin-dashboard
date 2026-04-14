@@ -12,19 +12,20 @@ import {
 import { type User } from "@/components/users/users-data"
 import { ViewUserDialog } from "@/components/users/view-user-dialog"
 import { EditUserDialog } from "@/components/users/edit-user-dialog"
+import { usePopup } from "@/components/shared/popup"
 
 // ── Column registry ────────────────────────────────────────
 
 export type ColKey = "name" | "email" | "department" | "designation" | "location" | "status" | "joinedAt" | "actions"
 
 export const ALL_COLUMNS: { key: ColKey; label: string }[] = [
-  { key: "name",        label: "Name" },
-  { key: "email",       label: "Email" },
-  { key: "department",  label: "Department" },
+  { key: "name", label: "Name" },
+  { key: "email", label: "Email" },
+  { key: "department", label: "Department" },
   { key: "designation", label: "Designation" },
-  { key: "location",    label: "Location" },
-  { key: "joinedAt",    label: "Joined" },
-  { key: "actions",     label: "Actions" },
+  { key: "location", label: "Location" },
+  { key: "joinedAt", label: "Joined" },
+  { key: "actions", label: "Actions" },
 ]
 
 export const DEFAULT_VISIBLE_COLS: ColKey[] = [
@@ -54,6 +55,7 @@ function RowActions({
 }) {
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const { danger, warning } = usePopup()
 
   return (
     <>
@@ -68,14 +70,24 @@ function RowActions({
           <DropdownMenuItem onSelect={() => setEditOpen(true)}><IconPencil className="size-4 mr-2" /> Edit User</DropdownMenuItem>
           {user.status === "active" ? (
             <DropdownMenuItem
-              onSelect={() => onToggleStatus(user.id, "inactive")}
+              onSelect={() => danger(
+                "Deactivate User",
+                `"${user.name}" will lose access immediately. You can reactivate them at any time.`,
+                () => onToggleStatus(user.id, "inactive"),
+              )}
               className="text-destructive focus:text-destructive"
             >
-              <IconUserOff className="size-4 mr-2" />
+              <IconUserOff className="size-4 mr-2 text-destructive" />
               Deactivate
             </DropdownMenuItem>
           ) : user.status === "inactive" ? (
-            <DropdownMenuItem onSelect={() => onToggleStatus(user.id, "active")}>
+            <DropdownMenuItem
+              onSelect={() => warning(
+                "Activate User",
+                `"${user.name}" will regain access to the platform.`,
+                () => onToggleStatus(user.id, "active"),
+              )}
+            >
               <IconUserCheck className="size-4 mr-2" />
               Activate
             </DropdownMenuItem>
@@ -113,7 +125,7 @@ export function UsersDataTable({
   selectedKeys?: Set<string>
   onSelectionChange?: (keys: Set<string>) => void
 }) {
-  const handleEdited = onEdited ?? (() => {})
+  const handleEdited = onEdited ?? (() => { })
 
   const allColDefs: Record<ColKey, ColumnDef<User>> = {
     name: {

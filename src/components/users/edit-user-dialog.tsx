@@ -33,17 +33,15 @@ export function EditUserDialog({
   onSave: (updated: User) => void
 }) {
   const [form, setForm] = useState<User | null>(null)
-  const [errors, setErrors] = useState<{ name?: string; email?: string; department?: string }>({})
+  const [errors, setErrors] = useState<{ name?: string; department?: string }>({})
 
   useEffect(() => {
     if (user) setForm({ ...user })
   }, [user])
 
   function validate() {
-    const errs: { name?: string; email?: string; department?: string } = {}
+    const errs: { name?: string; department?: string } = {}
     if (!form?.name.trim()) errs.name = "Name is required"
-    if (!form?.email.trim()) errs.email = "Email is required"
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form?.email ?? "")) errs.email = "Invalid email"
     if (!form?.department) errs.department = "Department is required"
     return errs
   }
@@ -83,24 +81,24 @@ export function EditUserDialog({
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="edit-email">Email Address <span className="text-destructive">*</span></Label>
+            <Label htmlFor="edit-email">Email Address</Label>
             <Input
               id="edit-email"
               type="email"
               value={form.email}
-              onChange={(e) => setForm((f) => f ? { ...f, email: e.target.value } : f)}
+              readOnly
+              className="bg-muted text-muted-foreground cursor-not-allowed"
             />
-            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
           </div>
 
           <div className="grid gap-1.5">
             <Label>Department <span className="text-destructive">*</span></Label>
             <Select value={form.department} onValueChange={(v) => setForm((f) => f ? { ...f, department: v } : f)}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Select a department" />
               </SelectTrigger>
               <SelectContent>
-                {DEPARTMENTS.map((d) => (
+                {[...new Set([...DEPARTMENTS, form.department].filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((d) => (
                   <SelectItem key={d} value={d}>{d}</SelectItem>
                 ))}
               </SelectContent>
@@ -124,14 +122,14 @@ export function EditUserDialog({
             </Select>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* <div className="flex items-center gap-2">
             <Checkbox
               id="edit-verified"
               checked={form.verified}
               onCheckedChange={(v) => setForm((f) => f ? { ...f, verified: !!v } : f)}
             />
             <Label htmlFor="edit-verified" className="font-normal">Mark as verified</Label>
-          </div>
+          </div> */}
         </div>
 
         <DialogFooter>

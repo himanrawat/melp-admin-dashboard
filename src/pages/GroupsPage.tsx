@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import {
   DropdownMenu,
@@ -37,17 +39,20 @@ import {
   PopoverTrigger,
   PopoverClose,
 } from "@/components/ui/popover"
+
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { InputGroup, InputGroupInput, InputGroupAddon, InputGroupButton } from "@/components/ui/input-group"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import { activateTeamGroup, addTeamMembers, archiveTeamGroup, fetchArchivedTeamGroups, fetchGroups, fetchTeamParticipants, fetchUsers } from "@/api/admin"
 import { useAuth } from "@/context/auth-context"
+import { usePopup } from "@/components/shared/popup"
 
 type Group = {
   id: string
@@ -115,13 +120,12 @@ function normalizeGroup(record: Record<string, unknown>, idx: number): Group {
   }
 }
 
-function AddGroupDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (g: Omit<Group, "id" | "createdAt" | "members">) => void }) {
+function AddGroupSheet({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (g: Omit<Group, "id" | "createdAt" | "members">) => void }) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [type, setType] = useState<"public" | "private">("public")
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  function handleSubmit() {
     if (!name) return
     onAdd({ name, description, type, status: "active" })
     setName(""); setDescription(""); setType("public")
@@ -129,10 +133,10 @@ function AddGroupDialog({ open, onClose, onAdd }: { open: boolean; onClose: () =
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Create New Group</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-2">
+    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
+        <SheetHeader><SheetTitle>Create New Group</SheetTitle></SheetHeader>
+        <div className="flex flex-col gap-4 px-4 flex-1">
           <div className="flex flex-col gap-1.5">
             <Label>Group Name</Label>
             <Input placeholder="e.g. Engineering" value={name} onChange={(e) => setName(e.target.value)} />
@@ -151,18 +155,19 @@ function AddGroupDialog({ open, onClose, onAdd }: { open: boolean; onClose: () =
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter className="mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" className="melp-radius">Create Group</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </div>
+        <SheetFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" className="melp-radius" onClick={handleSubmit}>Create Group</Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }
 
 export function GroupsPage() {
   const { selectedClient } = useAuth()
+  const { danger, warning } = usePopup()
   const [groupsByCategory, setGroupsByCategory] = useState<{
     all: Group[]
     active: Group[]
@@ -257,17 +262,26 @@ export function GroupsPage() {
     })
   }
 
-  async function handleToggleStatus(group: Group) {
+  function handleToggleStatus(group: Group) {
     if (!selectedClient) return
-    try {
-      if (group.status === "active") {
-        await archiveTeamGroup(group.id, selectedClient)
-      } else {
-        await activateTeamGroup(group.id, selectedClient)
-      }
-      await loadGroups()
-    } catch (err) {
-      setError((err as Error).message || "Failed to update group status")
+    if (group.status === "active") {
+      danger(
+        "Archive Group",
+        `"${group.name}" will be archived and hidden from active groups. You can restore it later.`,
+        async () => {
+          await archiveTeamGroup(group.id, selectedClient)
+          await loadGroups()
+        },
+      )
+    } else {
+      warning(
+        "Activate Group",
+        `"${group.name}" will be restored and visible in active groups.`,
+        async () => {
+          await activateTeamGroup(group.id, selectedClient)
+          await loadGroups()
+        },
+      )
     }
   }
 
@@ -445,8 +459,13 @@ export function GroupsPage() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => openGroupDetails(g)}><IconEye className="size-4 mr-2" /> View Members</DropdownMenuItem>
             <DropdownMenuItem><IconPencil className="size-4 mr-2" /> Edit Group</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleToggleStatus(g)}>
-              {g.status === "active" ? <><IconUserX className="size-4 mr-2" /> Archive</> : <><IconUserCheck className="size-4 mr-2" /> Activate</>}
+            <DropdownMenuItem
+              onClick={() => handleToggleStatus(g)}
+              className={g.status === "active" ? "text-destructive focus:text-destructive/90" : ""}
+            >
+              {g.status === "active"
+                ? <><IconUserX className="size-4 mr-2 text-destructive" /> Archive</>
+                : <><IconUserCheck className="size-4 mr-2" /> Activate</>}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -483,19 +502,19 @@ export function GroupsPage() {
         <TabsList variant="line">
           <TabsTrigger value="all">
             All Groups
-            <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {groupsByCategory.all.length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="active">
             Active
-            <Badge variant="secondary" className="ml-1.5 bg-success/10 text-success border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {activeCount}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="archived">
             Archived
-            <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {archivedCount}
             </Badge>
           </TabsTrigger>
@@ -521,7 +540,7 @@ export function GroupsPage() {
                 <IconFilter className="size-4" />
                 Filter
                 {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+                  <Badge variant="secondary" className="ml-1 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
                     {activeFilterCount}
                   </Badge>
                 )}
@@ -580,100 +599,145 @@ export function GroupsPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{detailsGroup?.name || "Group Details"}</DialogTitle>
-          </DialogHeader>
-          {detailsGroup && (
-            <div className="space-y-4">
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant={detailsGroup.status === "active" ? "outline" : "default"}
-                  onClick={() => handleToggleStatus(detailsGroup)}
-                >
-                  {detailsGroup.status === "active" ? "Archive Group" : "Activate Group"}
-                </Button>
-              </div>
-
-              <div className="rounded-md border p-3 space-y-3">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Input
-                    placeholder="Search users to add"
-                    value={addMemberSearch}
-                    onChange={(e) => setAddMemberSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") searchUsersToAdd()
-                    }}
-                  />
-                  <Button type="button" variant="outline" onClick={searchUsersToAdd} disabled={addMemberLoading}>
-                    {addMemberLoading ? "Searching..." : "Search"}
-                  </Button>
-                </div>
-                {addMemberResults.length > 0 && (
-                  <div className="max-h-56 overflow-y-auto space-y-2">
-                    {addMemberResults.map((user) => {
-                      const checked = Boolean(pendingMembers[user.melpid])
-                      const alreadyMember = members.some((m) => m.melpid === user.melpid)
-                      return (
-                        <div key={user.melpid} className="flex items-center justify-between gap-3 rounded border p-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{user.fullName}</p>
-                            <p className="text-xs text-muted-foreground truncate">{[user.profession, user.department].filter(Boolean).join(" · ")}</p>
-                          </div>
-                          {alreadyMember ? (
-                            <Badge variant="secondary">In Group</Badge>
-                          ) : (
-                            <label className="text-xs flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => togglePendingMember(user, e.target.checked)}
-                              />
-                              Add
-                            </label>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="flex justify-end">
-                  <Button size="sm" onClick={submitAddMembers} disabled={addMembersSubmitting || Object.keys(pendingMembers).length === 0}>
-                    {addMembersSubmitting ? "Adding..." : "Add Members"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Members ({members.length})</h4>
-                {membersLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading members...</p>
-                ) : (
-                  <div className="max-h-72 overflow-y-auto space-y-2">
-                    {members.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No members found.</p>
-                    ) : members.map((member) => (
-                      <div key={member.melpid} className="rounded-md border p-2">
-                        <p className="text-sm font-medium">{member.fullName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {[member.email, member.profession, member.department].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetContent side="right" className="sm:max-w-xl w-full flex flex-col p-0 gap-0">
+          {/* Fixed header */}
+          <SheetHeader className="px-6 py-4 border-b shrink-0">
+            <div className="flex items-center gap-3">
+              <Avatar className="size-10 rounded-lg shrink-0">
+                <AvatarFallback className="rounded-lg bg-secondary">
+                  <IconUsersGroup className="size-5 text-muted-foreground" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <SheetTitle className="truncate">{detailsGroup?.name || "Group Details"}</SheetTitle>
+                {detailsGroup && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    {detailsGroup.type === "public"
+                      ? <><IconWorld className="size-3" /> Public</>
+                      : <><IconLock className="size-3" /> Private</>}
+                    <span>·</span>
+                    {detailsGroup.members} members
+                  </p>
                 )}
               </div>
             </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDetailsOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetHeader>
 
-      <AddGroupDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAdd} />
+          {/* Scrollable body */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+            {detailsGroup && (
+              <>
+                {/* Add members */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold">Add Members</h4>
+                  <InputGroup>
+                    <InputGroupInput
+                      placeholder="Search users to add"
+                      value={addMemberSearch}
+                      onChange={(e) => setAddMemberSearch(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") searchUsersToAdd() }}
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton variant="secondary" type="button" onClick={searchUsersToAdd} disabled={addMemberLoading}>
+                        {addMemberLoading ? "Searching..." : "Search"}
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  </InputGroup>
+                  {addMemberResults.length > 0 && (
+                    <div className="divide-y">
+                      {addMemberResults.map((user) => {
+                        const checked = Boolean(pendingMembers[user.melpid])
+                        const alreadyMember = members.some((m) => m.melpid === user.melpid)
+                        return (
+                          <div key={user.melpid} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{user.fullName}</p>
+                              <p className="text-xs text-muted-foreground truncate">{[user.profession, user.department].filter(Boolean).join(" · ")}</p>
+                            </div>
+                            {alreadyMember ? (
+                              <Badge variant="secondary" className="shrink-0">In Group</Badge>
+                            ) : (
+                              <label className="text-xs flex items-center gap-1.5 shrink-0 cursor-pointer">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(v) => togglePendingMember(user, Boolean(v))}
+                                />
+                                Add
+                              </label>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {Object.keys(pendingMembers).length > 0 && (
+                    <div className="flex justify-end">
+                      {(() => {
+                        const count = Object.keys(pendingMembers).length
+                        const plural = count === 1 ? "" : "s"
+                        const label = addMembersSubmitting ? "Adding..." : `Add ${count} Member${plural}`
+                        return (
+                          <Button size="sm" onClick={submitAddMembers} disabled={addMembersSubmitting}>
+                            {label}
+                          </Button>
+                        )
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Members list */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold">Members ({members.length})</h4>
+                  {membersLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading members...</p>
+                  ) : members.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No members found.</p>
+                  ) : (
+                    <div className="divide-y">
+                      {members.map((member) => (
+                        <div key={member.melpid} className="flex items-center gap-3 py-2.5 first:pt-0">
+                          <Avatar className="size-8 shrink-0 rounded-lg">
+                            {member.imageUrl && <AvatarImage src={member.imageUrl} alt={member.fullName} />}
+                            <AvatarFallback className="rounded-lg text-xs">
+                              {member.fullName.slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{member.fullName}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {[member.profession, member.department].filter(Boolean).join(" · ")}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Fixed footer */}
+          <SheetFooter className="px-6 py-4 border-t shrink-0">
+            {detailsGroup && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={detailsGroup.status === "active" ? "text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive w-fit" : "w-fit"}
+                onClick={() => handleToggleStatus(detailsGroup)}
+              >
+                {detailsGroup.status === "active"
+                  ? <><IconUserX className="size-4 mr-1.5" />Archive Group</>
+                  : <><IconUserCheck className="size-4 mr-1.5" />Activate Group</>}
+              </Button>
+            )}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <AddGroupSheet open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAdd} />
     </div>
   )
 }

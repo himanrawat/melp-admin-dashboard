@@ -31,7 +31,7 @@ function SubscriptionCard({
           <p className="text-xs text-muted-foreground mb-1">{label}</p>
           <p className="text-xl font-bold">{value}</p>
           {badge && (
-            <Badge variant="secondary" className="bg-success/10 text-success border-0 text-xs mt-1">
+            <Badge variant="secondary" className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-xs mt-1">
               {badge}
             </Badge>
           )}
@@ -114,9 +114,9 @@ function OverviewTab() {
             <CardTitle>Usage This Month</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <UsageBar label="Users" used={156} total={500} unit="" color="var(--chart-1)" />
-            <UsageBar label="Storage" used={45.6} total={100} unit="GB" color="var(--chart-4)" />
-            <UsageBar label="API Calls" used={12450} total={50000} unit="" color="var(--chart-2)" />
+            <UsageBar label="Users" used={156} total={500} unit="" color="var(--foreground)" />
+            <UsageBar label="Storage" used={45.6} total={100} unit="GB" color="var(--foreground)" />
+            <UsageBar label="API Calls" used={12450} total={50000} unit="" color="var(--foreground)" />
           </CardContent>
         </Card>
       </div>
@@ -202,7 +202,7 @@ function InvoicesTab() {
                       variant="secondary"
                       className={
                         inv.status === "Paid"
-                          ? "bg-success/10 text-success border-0"
+                          ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0"
                           : "bg-warning/10 text-warning border-0"
                       }
                     >
@@ -237,7 +237,7 @@ function PlansTab() {
         <Card key={plan.name} className={plan.current ? "border-foreground/20" : ""}>
           <CardContent className="p-6">
             {plan.current && (
-              <Badge variant="secondary" className="bg-success/10 text-success border-0 text-xs mb-3">
+              <Badge variant="secondary" className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-xs mb-3">
                 Current Plan
               </Badge>
             )}

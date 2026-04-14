@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
 import { Toaster } from "sonner"
+import { PopupProvider } from "@/components/shared/popup"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/layout/site-header"
@@ -148,15 +149,17 @@ function AppLayout() {
 function App() {
   return (
     <BrowserRouter>
-      <Toaster richColors position="top-right" />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/*" element={
-          <PrivateRoute>
-            <AppLayout />
-          </PrivateRoute>
-        } />
-      </Routes>
+      <PopupProvider>
+        <Toaster richColors position="top-right" />
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/*" element={
+            <PrivateRoute>
+              <AppLayout />
+            </PrivateRoute>
+          } />
+        </Routes>
+      </PopupProvider>
     </BrowserRouter>
   )
 }

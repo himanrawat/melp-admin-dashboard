@@ -172,7 +172,7 @@ export const fetchAdmins = async (
 	clientid = "",
 	page = 1,
 ): Promise<unknown> => {
-	const raw = await get("/admin/admins", {
+	const raw = await get("/admin", {
 		params: withSession({ clientid, page }),
 	});
 	return decodeResponse(raw);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DataTable, type ColumnDef } from "@/components/shared/data-table";
+import { usePopup } from "@/components/shared/popup";
 import { mockUsers, type User } from "@/components/users/users-data";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +97,7 @@ const columns: ColumnDef<User>[] = [
 
 export function ComponentsPage() {
   const [loading, setLoading] = useState(false);
+  const { success: showSuccess } = usePopup();
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-8 p-4 lg:p-6">
@@ -119,7 +121,7 @@ export function ComponentsPage() {
             columns={columns}
             data={mockUsers}
             rowKey={(row) => row.id}
-            onRowClick={(row) => alert(`Clicked: ${row.name}`)}
+            onRowClick={(row) => showSuccess("Row Clicked", `Clicked: ${row.name}`)}
           />
         </div>
 

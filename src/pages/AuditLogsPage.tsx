@@ -322,37 +322,37 @@ export function AuditLogsPage() {
         <TabsList variant="line">
           <TabsTrigger value="all">
             All Logs
-            <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.all}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="user">
             User
-            <Badge variant="secondary" className="ml-1.5 bg-blue-500/10 text-blue-600 border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.user}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="admin">
             Admin
-            <Badge variant="secondary" className="ml-1.5 bg-[#ee4136]/10 text-[#ee4136] border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.admin}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="group">
             Group
-            <Badge variant="secondary" className="ml-1.5 bg-purple-500/10 text-purple-600 border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.group}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="policy">
             Policy
-            <Badge variant="secondary" className="ml-1.5 bg-amber-500/10 text-amber-600 border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.policy}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="domain">
             Domain
-            <Badge variant="secondary" className="ml-1.5 bg-teal-500/10 text-teal-600 border-0 text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
               {counts.domain}
             </Badge>
           </TabsTrigger>
@@ -378,7 +378,7 @@ export function AuditLogsPage() {
                 <IconFilter className="size-4" />
                 Actions
                 {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+                  <Badge variant="secondary" className="ml-1 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
                     {activeFilterCount}
                   </Badge>
                 )}

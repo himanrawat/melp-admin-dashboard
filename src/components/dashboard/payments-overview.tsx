@@ -57,7 +57,7 @@ export function PaymentsOverview() {
               <p className="font-semibold text-sm">Professional</p>
             </div>
           </div>
-          <Badge variant="secondary" className="bg-success/10 text-success border-0 text-xs">
+          <Badge variant="secondary" className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-xs">
             Active
           </Badge>
         </div>
@@ -98,7 +98,7 @@ export function PaymentsOverview() {
             </div>
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold">$99.00</p>
-              <Badge variant="secondary" className="bg-success/10 text-success border-0 text-xs">
+              <Badge variant="secondary" className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-xs">
                 Paid
               </Badge>
             </div>
