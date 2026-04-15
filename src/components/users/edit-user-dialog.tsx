@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { DEPARTMENTS, type User, type UserStatus } from "@/components/users/users-data"
 
 export function EditUserDialog({

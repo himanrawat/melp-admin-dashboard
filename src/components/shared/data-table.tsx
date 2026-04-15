@@ -1,4 +1,4 @@
-import { type ReactNode, type CSSProperties, type KeyboardEvent, useCallback, useMemo, useState } from "react";
+import { type ReactNode, type CSSProperties, type KeyboardEvent, type MouseEvent, useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -125,6 +125,15 @@ function stickyBase(left: number, isLastSticky: boolean): CSSProperties {
     zIndex: 10,
     ...(isLastSticky ? { boxShadow: "4px 0 6px -2px rgba(0,0,0,0.1)" } : {}),
   };
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "button, a, input, select, textarea, [role='checkbox'], [data-row-ignore-click='true']",
+    ),
+  );
 }
 
 /** Returns sticky positioning styles for a cell, or undefined if not sticky. */
@@ -302,6 +311,14 @@ function DataTableDataBody<T>({
     [onRowClick],
   );
 
+  const handleRowClick = useCallback(
+    (row: T) => (e: MouseEvent<HTMLTableRowElement>) => {
+      if (isInteractiveTarget(e.target)) return;
+      onRowClick?.(row);
+    },
+    [onRowClick],
+  );
+
   return (
     <TableBody>
       {data.map((row, idx) => {
@@ -314,7 +331,7 @@ function DataTableDataBody<T>({
             tabIndex={isClickable ? 0 : undefined}
             role={isClickable ? "button" : undefined}
             aria-label={isClickable ? `Select row ${key}` : undefined}
-            onClick={isClickable ? () => onRowClick(row) : undefined}
+            onClick={isClickable ? handleRowClick(row) : undefined}
             onKeyDown={isClickable ? handleKeyDown(row) : undefined}
             className={cn(
               "group border-b border-border transition-colors",
@@ -332,6 +349,7 @@ function DataTableDataBody<T>({
               >
                 <Checkbox
                   checked={selectedKeys?.has(key) ?? false}
+                  onClick={(e) => e.stopPropagation()}
                   onCheckedChange={() => onToggleRow?.(key)}
                   aria-label={`Select row ${key}`}
                 />

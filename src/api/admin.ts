@@ -590,7 +590,7 @@ export const addUserGroupMembers = async (
 	clientid: string,
 	members: unknown,
 ): Promise<unknown> => {
-	const params = withAccessMelpid({ clientid });
+	const params = { clientid };
 	return postJson(`/admin/usergroup/${groupid}/add`, members, { params });
 };
 

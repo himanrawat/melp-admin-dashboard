@@ -46,6 +46,7 @@ import type {
   PolicyEntity,
 } from "@/components/access-management/types"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
+import { popupApi } from "@/components/shared/popup"
 import {
   StatusState,
   StatusStateActions,
@@ -117,6 +118,8 @@ export function AccessGroupsPage() {
   const [view, setView] = useState<GroupView>("list")
   const [groupSearch, setGroupSearch] = useState("")
   const [attachSearch, setAttachSearch] = useState("")
+  const [memberSearch, setMemberSearch] = useState("")
+  const [policySearch, setPolicySearch] = useState("")
   const [userDialogOpen, setUserDialogOpen] = useState(false)
   const [userDialogSearch, setUserDialogSearch] = useState("")
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create")
@@ -163,6 +166,26 @@ export function AccessGroupsPage() {
 
   const [memberDetailOpen, setMemberDetailOpen] = useState(false)
   const [selectedMemberDetail, setSelectedMemberDetail] = useState<AccessUser | null>(null)
+
+  const filteredGroupMembers = groupMembers.filter((member) => {
+    const query = memberSearch.trim().toLowerCase()
+    if (!query) return true
+    return (
+      member.name.toLowerCase().includes(query) ||
+      member.email.toLowerCase().includes(query) ||
+      member.title.toLowerCase().includes(query) ||
+      member.team.toLowerCase().includes(query)
+    )
+  })
+
+  const filteredGroupPolicies = groupPolicies.filter((policy) => {
+    const query = policySearch.trim().toLowerCase()
+    if (!query) return true
+    return (
+      policy.name.toLowerCase().includes(query) ||
+      policy.description.toLowerCase().includes(query)
+    )
+  })
 
   const groupColumns: ColumnDef<AccessGroup>[] = [
     {
@@ -334,6 +357,8 @@ export function AccessGroupsPage() {
 
     setSelectedGroup(group)
     setView("detail")
+    setMemberSearch("")
+    setPolicySearch("")
     setDetailLoading(true)
     setDetailStatusCode(undefined)
     setDetailStatusMessage(undefined)
@@ -571,6 +596,7 @@ export function AccessGroupsPage() {
 
   const openEditEditor = () => {
     if (!selectedGroup) return
+    setRenameDialogOpen(false)
 
     const nextDraft: DraftGroup = {
       name: selectedGroup.name,
@@ -598,7 +624,43 @@ export function AccessGroupsPage() {
     setView("attach")
   }
 
-  const handleApplyUserSelection = () => {
+  const openUserPickerFromDetail = () => {
+    setSelectedUserCandidateKeys(new Set(groupMembers.map((user) => keyForUser(user))))
+    setUserDialogSearch("")
+    setUserDialogOpen(true)
+  }
+
+  const handleApplyUserSelection = async () => {
+    if (view === "detail" && selectedGroup && selectedClient) {
+      const existingMemberKeys = new Set(groupMembers.map((user) => keyForUser(user)))
+      const addedMembers = userCandidates.filter((user) => {
+        const key = keyForUser(user)
+        return selectedUserCandidateKeys.has(key) && !existingMemberKeys.has(key)
+      })
+
+      if (addedMembers.length === 0) {
+        setUserDialogOpen(false)
+        return
+      }
+
+      setSaving(true)
+      try {
+        await addUserGroupMembers(
+          selectedGroup.id,
+          selectedClient,
+          addedMembers.map((user) => getParticipantId(user)),
+        )
+        toast.success("Users added to the group.")
+        setUserDialogOpen(false)
+        await loadGroupDetail(selectedGroup)
+      } catch (error) {
+        toast.error(getErrorDescription(error) || "Unable to add these users right now.")
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     setDraft((current) => {
       const nextMembers = new Map(current.members.map((user) => [keyForUser(user), user]))
 
@@ -800,51 +862,55 @@ export function AccessGroupsPage() {
 
   const handleRemoveMembers = async () => {
     if (!selectedGroup || !selectedClient || selectedMemberKeys.size === 0) return
+    popupApi.warning(
+      "Remove selected members?",
+      "The selected users will be removed from this group.",
+      async () => {
+        setSaving(true)
 
-    const confirmed = window.confirm("Remove the selected members from this group?")
-    if (!confirmed) return
+        try {
+          const memberIds = groupMembers
+            .filter((member) => selectedMemberKeys.has(keyForUser(member)))
+            .map((member) => getParticipantId(member))
 
-    setSaving(true)
-
-    try {
-      const memberIds = groupMembers
-        .filter((member) => selectedMemberKeys.has(keyForUser(member)))
-        .map((member) => getParticipantId(member))
-
-      await removeUserGroupMembers(selectedGroup.id, selectedClient, memberIds)
-      toast.success("Members removed from the group.")
-      setSelectedMemberKeys(new Set())
-      await loadGroupDetail(selectedGroup)
-    } catch (error) {
-      toast.error(getErrorDescription(error) || "Unable to remove these members right now.")
-    } finally {
-      setSaving(false)
-    }
+          await removeUserGroupMembers(selectedGroup.id, selectedClient, memberIds)
+          toast.success("Members removed from the group.")
+          setSelectedMemberKeys(new Set())
+          await loadGroupDetail(selectedGroup)
+        } catch (error) {
+          toast.error(getErrorDescription(error) || "Unable to remove these members right now.")
+        } finally {
+          setSaving(false)
+        }
+      },
+    )
   }
 
   const handleRemovePolicies = async () => {
     if (!selectedGroup || !selectedClient || selectedPolicyKeys.size === 0) return
+    popupApi.warning(
+      "Remove selected policies?",
+      "The selected policies will be detached from this group.",
+      async () => {
+        setSaving(true)
 
-    const confirmed = window.confirm("Remove the selected policies from this group?")
-    if (!confirmed) return
-
-    setSaving(true)
-
-    try {
-      await removeMultiplePolicies({
-        clientid: Number(selectedClient),
-        entityId: selectedGroup.id,
-        type: "USER_GROUP",
-        policies: Array.from(selectedPolicyKeys),
-      })
-      toast.success("Policies removed from the group.")
-      setSelectedPolicyKeys(new Set())
-      await loadGroupDetail(selectedGroup)
-    } catch (error) {
-      toast.error(getErrorDescription(error) || "Unable to remove these policies right now.")
-    } finally {
-      setSaving(false)
-    }
+        try {
+          await removeMultiplePolicies({
+            clientid: Number(selectedClient),
+            entityId: selectedGroup.id,
+            type: "USER_GROUP",
+            policies: Array.from(selectedPolicyKeys),
+          })
+          toast.success("Policies removed from the group.")
+          setSelectedPolicyKeys(new Set())
+          await loadGroupDetail(selectedGroup)
+        } catch (error) {
+          toast.error(getErrorDescription(error) || "Unable to remove these policies right now.")
+        } finally {
+          setSaving(false)
+        }
+      },
+    )
   }
 
   const handleRenameGroup = async () => {
@@ -1212,10 +1278,14 @@ export function AccessGroupsPage() {
               <Button variant="outline" onClick={() => setUserDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleApplyUserSelection}>Add Selected Users</Button>
+              <Button disabled={saving} onClick={() => void handleApplyUserSelection()}>
+                {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : null}
+                Add Selected Users
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
       </div>
     )
   }
@@ -1311,7 +1381,7 @@ export function AccessGroupsPage() {
 
           <TabsContent value="users" className="space-y-4">
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={openEditEditor}>
+              <Button variant="outline" size="sm" onClick={openUserPickerFromDetail}>
                 <IconUserPlus className="mr-1.5 size-4" />
                 Add Users
               </Button>
@@ -1329,9 +1399,18 @@ export function AccessGroupsPage() {
                 Remove Selected
               </Button>
             </div>
+            <div className="relative w-full sm:w-72">
+              <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search users…"
+                value={memberSearch}
+                onChange={(event) => setMemberSearch(event.target.value)}
+                className="pl-9"
+              />
+            </div>
             <DataTable<AccessUser>
               columns={memberColumns}
-              data={groupMembers}
+              data={filteredGroupMembers}
               rowKey={(user) => keyForUser(user)}
               onRowClick={(user) => {
                 setSelectedMemberDetail(user)
@@ -1344,8 +1423,12 @@ export function AccessGroupsPage() {
               emptyState={
                 <StatusState
                   compact
-                  title="No members assigned yet"
-                  description="Group membership data is empty right now."
+                  title={memberSearch ? "No users match this search" : "No members assigned yet"}
+                  description={
+                    memberSearch
+                      ? "Try another keyword or clear the search."
+                      : "Group membership data is empty right now."
+                  }
                 />
               }
             />
@@ -1371,9 +1454,18 @@ export function AccessGroupsPage() {
                 Remove Selected
               </Button>
             </div>
+            <div className="relative w-full sm:w-72">
+              <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search policies…"
+                value={policySearch}
+                onChange={(event) => setPolicySearch(event.target.value)}
+                className="pl-9"
+              />
+            </div>
             <DataTable<AccessPolicy>
               columns={permissionColumns}
-              data={groupPolicies}
+              data={filteredGroupPolicies}
               rowKey={(policy) => keyForPolicy(policy)}
               onRowClick={(policy) => void loadPolicyDetail(policy)}
               paginated
@@ -1383,13 +1475,80 @@ export function AccessGroupsPage() {
               emptyState={
                 <StatusState
                   compact
-                  title="No policies attached yet"
-                  description="Attach policies to define the access model for this group."
+                  title={policySearch ? "No policies match this search" : "No policies attached yet"}
+                  description={
+                    policySearch
+                      ? "Try another keyword or clear the search."
+                      : "Attach policies to define the access model for this group."
+                  }
                 />
               }
             />
           </TabsContent>
         </Tabs>
+
+        <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Users to Group</DialogTitle>
+              <DialogDescription>
+                Search users and choose who should belong to this access group.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="relative w-full">
+                <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search users…"
+                  value={userDialogSearch}
+                  onChange={(event) => setUserDialogSearch(event.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              {userCandidatesStatusCode && userCandidatesStatusCode !== 204 ? (
+                <StatusState code={userCandidatesStatusCode} description={userCandidatesStatusMessage} />
+              ) : (
+                <DataTable<AccessUser>
+                  columns={dialogMemberColumns}
+                  data={userCandidates}
+                  rowKey={(user) => keyForUser(user)}
+                  loading={userCandidatesLoading}
+                  compact
+                  paginated
+                  maxBodyHeight="400px"
+                  selectable
+                  selectedKeys={selectedUserCandidateKeys}
+                  onSelectionChange={setSelectedUserCandidateKeys}
+                  emptyState={
+                    <StatusState
+                      compact
+                      title={userDialogSearch ? "No users match this search" : "No candidate users available"}
+                      description={
+                        userDialogSearch
+                          ? "Try another keyword or clear the search."
+                          : "No eligible users are available to add to this group right now."
+                      }
+                      actionSlot={
+                        userDialogSearch ? (
+                          <StatusStateActions secondaryLabel="Clear Search" onSecondaryClick={() => setUserDialogSearch("")} />
+                        ) : undefined
+                      }
+                    />
+                  }
+                />
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setUserDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button disabled={saving} onClick={() => void handleApplyUserSelection()}>
+                {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : null}
+                Add Selected Users
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Rename dialog */}
         <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>

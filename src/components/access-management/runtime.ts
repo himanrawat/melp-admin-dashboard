@@ -23,6 +23,35 @@ function asRecord(value: unknown): RecordLike | null {
   return value as RecordLike
 }
 
+function unwrapPolicyRecord(value: unknown): RecordLike | null {
+  const root = asRecord(value)
+  if (!root) return null
+
+  const candidates: Array<RecordLike | null> = [
+    root,
+    asRecord(root.data),
+    asRecord(asRecord(root.data)?.data),
+    asRecord(root.serviceResp),
+    asRecord(asRecord(root.serviceResp)?.data),
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const hasPolicyFields =
+      "policyName" in candidate ||
+      "policyname" in candidate ||
+      "pkid" in candidate ||
+      "policyId" in candidate ||
+      "policyid" in candidate ||
+      Array.isArray(candidate.modules) ||
+      Array.isArray(candidate.entities)
+
+    if (hasPolicyFields) return candidate
+  }
+
+  return root
+}
+
 function asString(value: unknown, fallback = ""): string {
   if (typeof value === "string") return value.trim() || fallback
   if (typeof value === "number" && Number.isFinite(value)) return String(value)
@@ -55,6 +84,22 @@ function toTitleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ")
+}
+
+function normalizeUserStatus(value: unknown): string {
+  const raw = asString(value).trim()
+  if (!raw) return "Active"
+
+  const upper = raw.toUpperCase()
+  if (upper === "Y" || upper === "1" || upper === "TRUE" || upper === "ACTIVE") {
+    return "Active"
+  }
+  if (upper === "N" || upper === "0" || upper === "FALSE" || upper === "INACTIVE") {
+    return "Inactive"
+  }
+  if (upper === "DELETED") return "Deleted"
+
+  return toTitleCase(raw)
 }
 
 export function formatAccessDate(value: unknown): string {
@@ -233,24 +278,44 @@ export function mapFeatureLibrary(raw: unknown): AccessModule[] {
 export function mapAccessUser(raw: unknown): AccessUser {
   const record = asRecord(raw) ?? {}
   const user = asRecord(record.user) ?? record
-  const name = asString(user.fullname || user.fullName || user.name, "Unknown user")
+  const name = asString(
+    user.fullname || user.fullName || user.name || user.userName || record.fullName,
+    "Unknown user",
+  )
+  const melpid = asString(user.melpid || user.melpId || record.melpid || record.melpId)
+  const userId = asString(user.userId || user.userid || record.userId || record.userid)
 
   return {
-    id: asString(user.userId || user.userid || user.melpid || record.userId || record.userid, name),
-    userId: asString(user.userId || user.userid || record.userId || record.userid),
-    melpid: asString(user.melpid || record.melpid || record.name),
+    id: asString(userId || melpid, name),
+    userId,
+    melpid,
     name,
-    email: asString(user.email),
+    email: asString(user.email || record.email),
     title: asString(
       user.expertise ||
         user.professionName ||
         user.profession ||
         user.title ||
-        user.workingas,
+        user.workingas ||
+        record.expertise ||
+        record.professionName ||
+        record.profession ||
+        record.title ||
+        record.workingas,
       "-",
     ),
-    team: asString(user.departmentName || user.department || user.team || user.location, "-"),
-    status: toTitleCase(asString(user.status || record.status, "Active")),
+    team: asString(
+      user.departmentName ||
+        user.department ||
+        user.team ||
+        user.location ||
+        record.departmentName ||
+        record.department ||
+        record.team ||
+        record.location,
+      "-",
+    ),
+    status: normalizeUserStatus(user.status || record.status || user.isActive),
   }
 }
 
@@ -314,7 +379,7 @@ export function mapPolicyEntity(raw: unknown): PolicyEntity {
 }
 
 export function mapPolicySummary(raw: unknown): AccessPolicy {
-  const record = asRecord(raw) ?? {}
+  const record = unwrapPolicyRecord(raw) ?? {}
   const modules = Array.isArray(record.modules) ? record.modules.map((module) => mapAccessModule(module)) : []
   const entities = Array.isArray(record.entities) ? record.entities.map((entity) => mapPolicyEntity(entity)) : []
   const name = asString(record.policyName || record.policyname || record.name, "Untitled Policy")
@@ -341,7 +406,7 @@ export function mapPolicySummary(raw: unknown): AccessPolicy {
 }
 
 export function mapPolicyDetail(raw: unknown): AccessPolicy | null {
-  const record = asRecord(raw)
+  const record = unwrapPolicyRecord(raw)
   if (!record) return null
   const summary = mapPolicySummary(record)
 

@@ -5,7 +5,6 @@ import {
   IconLoader2,
   IconPlus,
   IconSearch,
-  IconTrash,
 } from "@tabler/icons-react"
 import { toast } from "sonner"
 
@@ -40,6 +39,7 @@ import type {
   AccessPolicy,
   PolicyEntity,
 } from "@/components/access-management/types"
+import { PolicyDetailView } from "@/components/access-management/shared"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import {
   StatusState,
@@ -50,7 +50,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/context/auth-context"
 
@@ -158,7 +157,6 @@ export function AccessPoliciesPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailStatusCode, setDetailStatusCode] = useState<StatusStateCode | undefined>()
   const [detailStatusMessage, setDetailStatusMessage] = useState<string | undefined>()
-  const [selectedEntityKeys, setSelectedEntityKeys] = useState<Set<string>>(new Set())
 
   const [attachCandidates, setAttachCandidates] = useState<PolicyEntity[]>([])
   const [attachLoading, setAttachLoading] = useState(false)
@@ -267,30 +265,6 @@ export function AccessPoliciesPage() {
       accessor: "attachedAt",
       align: "right",
       minWidth: "120px",
-    },
-  ]
-
-  const moduleColumns: ColumnDef<AccessModule>[] = [
-    { id: "name", header: "Module", accessor: "name", sticky: true, minWidth: "180px" },
-    { id: "scope", header: "Scope", accessor: "scope", minWidth: "120px" },
-    {
-      id: "features",
-      header: "Rules",
-      accessor: (module) => (
-        <div className="flex max-w-[18rem] flex-wrap gap-1">
-          {module.features.slice(0, 4).map((feature) => (
-            <Badge key={feature.id} variant="secondary" className="border-0 text-[10px]">
-              {feature.name}: {feature.limit}
-            </Badge>
-          ))}
-          {module.features.length > 4 ? (
-            <Badge variant="outline" className="text-[10px]">
-              +{module.features.length - 4}
-            </Badge>
-          ) : null}
-        </div>
-      ),
-      minWidth: "220px",
     },
   ]
 
@@ -494,7 +468,6 @@ export function AccessPoliciesPage() {
     setDetailLoading(true)
     setDetailStatusCode(undefined)
     setDetailStatusMessage(undefined)
-    setSelectedEntityKeys(new Set())
 
     try {
       const candidates =
@@ -731,11 +704,14 @@ export function AccessPoliciesPage() {
     }
   }
 
-  const handleDetachEntities = async () => {
-    if (!selectedPolicy || selectedEntityKeys.size === 0) return
+  const handleDetachEntities = async (entityIds?: string[]) => {
+    if (!selectedPolicy) return
+
+    const selectedIds = new Set(entityIds ?? [])
+    if (selectedIds.size === 0) return
 
     const revokeIds = selectedPolicy.entities
-      .filter((entity) => selectedEntityKeys.has(entity.id))
+      .filter((entity) => selectedIds.has(entity.id))
       .map((entity) => entity.activeId || entity.id)
 
     if (revokeIds.length === 0) return
@@ -745,7 +721,6 @@ export function AccessPoliciesPage() {
     try {
       await revokePolicies(selectedPolicy.backendPolicyId || selectedPolicy.id, revokeIds)
       toast.success("Entity access removed.")
-      setSelectedEntityKeys(new Set())
       await loadPolicyDetail(selectedPolicy)
     } catch (error) {
       toast.error(getErrorDescription(error) || "Unable to remove these entity assignments right now.")
@@ -813,94 +788,17 @@ export function AccessPoliciesPage() {
 
     return (
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
-        <div className="space-y-3">
-          <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={() => setView("list")}>
-            <IconArrowLeft className="size-4" />
-            Back to Policies
-          </Button>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{selectedPolicy.name}</h1>
-              <p className="text-sm text-muted-foreground">{selectedPolicy.description}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={openEditBuilder}>
-                Edit Policy
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { setAttachType("User"); setView("attach") }}>
-                Attach User
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { setAttachType("User Group"); setView("attach") }}>
-                Attach Group
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { setAttachType("Domain"); setView("attach") }}>
-                Attach Domain
-              </Button>
-              <Button variant="destructive" size="sm" disabled={deleting} onClick={handleDeletePolicy}>
-                {deleting ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : <IconTrash className="mr-1.5 size-4" />}
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{selectedPolicy.risk}</Badge>
-          <Badge variant="secondary" className="border-0">
-            {selectedPolicy.moduleCount ?? selectedPolicy.modules.length} modules
-          </Badge>
-          <Badge variant="secondary" className="border-0">
-            {selectedPolicy.entityCount ?? selectedPolicy.entities.length} entities
-          </Badge>
-          <Badge variant="outline">{selectedPolicy.createdAt}</Badge>
-        </div>
-
-        <Tabs defaultValue="permissions">
-          <TabsList variant="line">
-            <TabsTrigger value="permissions">Permissions</TabsTrigger>
-            <TabsTrigger value="entities">Entities</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="permissions" className="space-y-4">
-            <DataTable<AccessModule>
-              columns={moduleColumns}
-              data={selectedPolicy.modules}
-              rowKey={(module) => module.id}
-              emptyState={
-                <StatusState
-                  compact
-                  title="No modules attached"
-                  description="This policy does not have any module rules yet."
-                />
-              }
-            />
-          </TabsContent>
-
-          <TabsContent value="entities" className="space-y-4">
-            <div className="flex justify-end">
-              <Button variant="outline" size="sm" disabled={saving || selectedEntityKeys.size === 0} onClick={handleDetachEntities}>
-                {saving ? <IconLoader2 className="mr-1.5 size-4 animate-spin" /> : <IconTrash className="mr-1.5 size-4" />}
-                Detach Selected
-              </Button>
-            </div>
-            <DataTable<PolicyEntity>
-              columns={attachColumns}
-              data={selectedPolicy.entities}
-              rowKey={(entity) => entity.id}
-              paginated
-              selectable
-              selectedKeys={selectedEntityKeys}
-              onSelectionChange={setSelectedEntityKeys}
-              emptyState={
-                <StatusState
-                  compact
-                  title="No entities attached"
-                  description="This policy is not currently assigned to any users, groups, or domains."
-                />
-              }
-            />
-          </TabsContent>
-        </Tabs>
+        <PolicyDetailView
+          policy={selectedPolicy}
+          onBack={() => setView("list")}
+          onEdit={openEditBuilder}
+          onDelete={deleting ? undefined : handleDeletePolicy}
+          onAttachEntity={(type) => {
+            setAttachType(type)
+            setView("attach")
+          }}
+          onDetachEntities={handleDetachEntities}
+        />
       </div>
     )
   }
