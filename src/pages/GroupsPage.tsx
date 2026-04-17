@@ -204,7 +204,8 @@ export function GroupsPage() {
       const allGroups = [...activeGroups, ...archivedGroups]
       setGroupsByCategory({ all: allGroups, active: activeGroups, archived: archivedGroups })
     } catch (err) {
-      setError((err as Error).message || "Failed to load groups")
+      console.error("[GroupsPage] load failed:", err)
+      setError("Something went wrong while loading groups. Please try again.")
       setGroupsByCategory({ all: [], active: [], archived: [] })
     } finally {
       setLoading(false)
@@ -355,7 +356,8 @@ export function GroupsPage() {
       setAddMemberResults([])
       await Promise.all([loadParticipants(detailsGroup.id), loadGroups()])
     } catch (err) {
-      setError((err as Error).message || "Failed to add members")
+      console.error("[GroupsPage] add members failed:", err)
+      setError("Failed to add members. Please try again.")
     } finally {
       setAddMembersSubmitting(false)
     }

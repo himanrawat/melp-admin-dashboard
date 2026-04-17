@@ -152,7 +152,8 @@ export function AuditLogsPage() {
       setAllRows(mapped)
       setTotalCount(Number(result.totalCount || mapped.length || 0))
     } catch (err) {
-      setError((err as Error).message || "Failed to load audit logs")
+      console.error("[AuditLogsPage] load failed:", err)
+      setError("Something went wrong while loading audit logs. Please try again.")
       setAllRows([])
       setTotalCount(0)
     } finally {

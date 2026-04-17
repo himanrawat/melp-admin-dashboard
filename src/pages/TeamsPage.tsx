@@ -224,7 +224,8 @@ export function TeamsPage() {
       const allTeams = [...activeTeams, ...archivedTeams]
       setTeamsByCategory({ all: allTeams, active: activeTeams, archived: archivedTeams })
     } catch (err) {
-      setError((err as Error).message || "Failed to load teams")
+      console.error("[TeamsPage] load failed:", err)
+      setError("Something went wrong while loading teams. Please try again.")
       setTeamsByCategory({ all: [], active: [], archived: [] })
     } finally {
       setLoading(false)
@@ -390,7 +391,8 @@ export function TeamsPage() {
       setAddMemberResults([])
       await Promise.all([loadParticipants(detailsTeam.id), loadTeams()])
     } catch (err) {
-      setError((err as Error).message || "Failed to add members")
+      console.error("[TeamsPage] add members failed:", err)
+      setError("Failed to add members. Please try again.")
     } finally {
       setAddMembersSubmitting(false)
     }
@@ -407,7 +409,8 @@ export function TeamsPage() {
         await Promise.all([loadParticipants(detailsTeam.id), loadTeams()])
       }
     } catch (err) {
-      setError((err as Error).message || "Member action failed")
+      console.error("[TeamsPage] member action failed:", err)
+      setError("Something went wrong. Please try again.")
     } finally {
       setMemberActionLoading("")
     }

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { IconDots, IconUserCheck, IconUserOff, IconKey, IconEye, IconPencil } from "@tabler/icons-react"
+import { IconDots, IconUserCheck, IconUserOff, IconKey, IconEye, IconPencil, IconShield, IconShieldOff } from "@tabler/icons-react"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,10 +47,12 @@ function StatusBadge({ status }: { status: User["status"] }) {
 function RowActions({
   user,
   onToggleStatus,
+  onToggleAdmin,
   onEdited,
 }: {
   user: User
   onToggleStatus: (id: string, status: "active" | "inactive") => void
+  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean) => void
   onEdited: (updated: User) => void
 }) {
   const [viewOpen, setViewOpen] = useState(false)
@@ -92,6 +94,30 @@ function RowActions({
               Activate
             </DropdownMenuItem>
           ) : null}
+          {user.isAdmin ? (
+            <DropdownMenuItem
+              onSelect={() => danger(
+                "Remove Admin",
+                `"${user.name}" will lose admin privileges.`,
+                () => onToggleAdmin(user.id, user.melpid || user.id, false),
+              )}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconShieldOff className="size-4 mr-2 text-destructive" />
+              Remove Admin
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onSelect={() => warning(
+                "Make Admin",
+                `"${user.name}" will be granted admin privileges.`,
+                () => onToggleAdmin(user.id, user.melpid || user.id, true),
+              )}
+            >
+              <IconShield className="size-4 mr-2" />
+              Make Admin
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -108,6 +134,7 @@ export function UsersDataTable({
   visibleCols,
   loading,
   onToggleStatus,
+  onToggleAdmin,
   onEdited,
   selectable,
   selectedKeys,
@@ -120,6 +147,7 @@ export function UsersDataTable({
   onAdd?: () => void
   onInvite?: () => void
   onToggleStatus: (id: string, status: "active" | "inactive") => void
+  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean) => void
   onEdited?: (updated: User) => void
   selectable?: boolean
   selectedKeys?: Set<string>
@@ -201,7 +229,7 @@ export function UsersDataTable({
       id: "actions",
       header: "",
       accessor: (u) => (
-        <RowActions user={u} onToggleStatus={onToggleStatus} onEdited={handleEdited} />
+        <RowActions user={u} onToggleStatus={onToggleStatus} onToggleAdmin={onToggleAdmin} onEdited={handleEdited} />
       ),
       align: "right",
       minWidth: "60px",

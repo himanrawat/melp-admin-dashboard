@@ -1,5 +1,5 @@
 import { ApiRequestError, get, postJson, putJson, del } from "./http";
-import { loadStoredAuth, decryptWithKey } from "./auth";
+import { loadStoredAuth, decryptWithKey, encryptWithSessionKey } from "./auth";
 import type { NormalizedList } from "@/types";
 
 type ParamValue = string | number | boolean | null | undefined;
@@ -202,16 +202,22 @@ export const activateAdmin = async (
 	clientid: string,
 	userid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid, userid });
-	return postJson("/admin/admin", {}, { params });
+	// AdminPanel/admin mirrors the old backend endpoint.
+	// clientid, userid, and current-admin melpid must all be AES-encrypted with the session key.
+	const encUserId = await encryptWithSessionKey(userid);
+	const encClientId = await encryptWithSessionKey(clientid);
+	const params = withAccessMelpid({ clientid: encClientId, userid: encUserId });
+	return postJson("/AdminPanel/admin", {}, { params });
 };
 
 export const deactivateAdmin = async (
 	clientid: string,
 	userid: string,
 ): Promise<unknown> => {
-	const params = withSession({ clientid, userid });
-	return del("/admin/admin", { params });
+	const encUserId = await encryptWithSessionKey(userid);
+	const encClientId = await encryptWithSessionKey(clientid);
+	const params = withAccessMelpid({ clientid: encClientId, userid: encUserId });
+	return del("/AdminPanel/admin", { params });
 };
 
 // ==================== USER MANAGEMENT ====================

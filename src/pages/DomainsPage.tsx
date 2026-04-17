@@ -102,7 +102,7 @@ export function DomainsPage() {
         if (firstId) setSelectedClient(firstId, firstName)
       }
       setDomains(mapped)
-    } catch (err) { setError((err as Error).message || "Failed to load domains"); setDomains([]) }
+    } catch (err) { console.error("[DomainsPage] load failed:", err); setError("Something went wrong while loading domains. Please try again."); setDomains([]) }
     finally { setLoading(false) }
   }, [selectedClient, setSelectedClient])
 

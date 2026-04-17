@@ -35,7 +35,8 @@ export function LoginPage() {
       await login({ email, password })
       navigate("/dashboard")
     } catch (err) {
-      setError((err as Error).message || "Unable to login")
+      console.error("[Login] sign-in failed:", err)
+      setError("Unable to sign in. Please check your credentials and try again.")
     } finally {
       setLoading(false)
     }

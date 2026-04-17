@@ -128,7 +128,8 @@ export function AuditLogsSection() {
 
       setLogs(mapped)
     } catch (err) {
-      setError((err as Error).message || "Failed to load audit logs")
+      console.error("[AuditLogsSection] load failed:", err)
+      setError("Something went wrong while loading audit logs. Please try again.")
       setLogs([])
     } finally {
       setLoading(false)

@@ -109,7 +109,8 @@ export function AddUserDialog({
       setErrors({})
       onClose()
     } catch (err) {
-      setSubmitError((err as Error)?.message || "Unable to add users")
+      console.error("[AddUserDialog] submit failed:", err)
+      setSubmitError("Unable to add users. Please try again.")
     } finally {
       setSubmitting(false)
     }

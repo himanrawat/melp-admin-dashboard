@@ -217,7 +217,8 @@ export function StatCards() {
         },
       })
     } catch (err) {
-      setError((err as Error).message || "Failed to load dashboard stats")
+      console.error("[StatCards] load failed:", err)
+      setError("Something went wrong while loading stats. Please try again.")
       setStats(EMPTY_STATS)
     } finally {
       setLoading(false)

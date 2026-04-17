@@ -323,6 +323,19 @@ export const refreshJwtToken = async (
 	return token;
 };
 
+/**
+ * Encrypt a plain-text value with the AES session key stored in auth.
+ * Used for legacy endpoints (e.g. AdminPanel/admin) that expect encrypted params.
+ * Falls back to the plain value if no key is available.
+ */
+export const encryptWithSessionKey = async (plain: string): Promise<string> => {
+	if (!plain) return plain;
+	const auth = loadStoredAuth();
+	const keyHex = auth?.keyHex?.trim();
+	if (!keyHex) return plain;
+	return encryptValue(plain, keyHex);
+};
+
 export const updateStoredJwt = (jwtToken: string): void => {
 	if (!jwtToken) return;
 	const normalized = String(jwtToken)

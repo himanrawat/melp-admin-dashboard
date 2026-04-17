@@ -12,7 +12,7 @@ import { UsersDataTable, DEFAULT_VISIBLE_COLS, type ColKey } from "@/components/
 import { AddUserInline, type AddUserDraft } from "@/components/users/add-user-inline"
 import { BulkUploadInline } from "@/components/users/bulk-upload-inline"
 import { InviteDialog } from "@/components/users/user-confirm-dialogs"
-import { fetchUsers, fetchAdmins, manualInviteUsers, bulkInviteUsers } from "@/api/admin"
+import { fetchUsers, manualInviteUsers, bulkInviteUsers, activateAdmin, deactivateAdmin } from "@/api/admin"
 import { getErrorDescription, getStatusCodeFromError } from "@/components/access-management/runtime"
 import { useAuth } from "@/context/auth-context"
 
@@ -229,11 +229,10 @@ export function UsersPage() {
         return users
       }
 
-      const [allRes, activeRes, inactiveRes, adminRes] = await Promise.allSettled([
+      const [allRes, activeRes, inactiveRes] = await Promise.allSettled([
         fetchUserBucket(0, "all users"),
         fetchUserBucket(1, "active users", "active"),
         fetchUserBucket(2, "inactive users", "inactive"),
-        fetchAdmins(selectedClient, 1),
       ])
 
       if (allRes.status === "rejected" || activeRes.status === "rejected" || inactiveRes.status === "rejected") {
@@ -244,30 +243,18 @@ export function UsersPage() {
         throw firstError
       }
 
-      if (adminRes.status === "rejected") {
-        console.error("[UsersPage] admin users fetch failed:", adminRes.reason)
-      }
-
-      const adminRaw = adminRes.status === "fulfilled" ? adminRes.value : { list: [] }
-
       const allUsers = allRes.value
       const activeUsers = activeRes.value
       const inactiveUsers = inactiveRes.value
 
-      console.log("[UsersPage] admin users raw page 1:", adminRaw)
-
-      const fetchedAdminUsers = parseUserList(adminRaw).map((u, idx) => ({
-        ...mapUser(u, idx),
-        isAdmin: true,
-      }))
-      const allAdminUsers = allUsers.filter((u) => u.isAdmin)
-      const adminUsers = fetchedAdminUsers.length > 0 ? fetchedAdminUsers : allAdminUsers
+      // Admin status comes from adminStatus field in the user list — no separate fetch needed
+      const adminUsers = allUsers.filter((u) => u.isAdmin)
 
       console.groupCollapsed(`[UsersPage] User buckets for client ${selectedClient}`)
       console.log("all (category=0):", allUsers)
       console.log("active (category=1):", activeUsers)
       console.log("inactive (category=2):", inactiveUsers)
-      console.log("admin (/admin):", adminUsers)
+      console.log("admin (filtered):", adminUsers)
       console.log("counts:", {
         all: allUsers.length,
         active: activeUsers.length,
@@ -283,7 +270,8 @@ export function UsersPage() {
         admin: adminUsers,
       })
     } catch (err) {
-      setError((err as Error).message || "Failed to load users")
+      console.error("[UsersPage] load failed:", err)
+      setError("Something went wrong while loading users. Please try again.")
       setUsersByCategory({ all: [], active: [], inactive: [], admin: [] })
     } finally {
       setLoading(false)
@@ -387,7 +375,8 @@ export function UsersPage() {
       await loadUsers()
       showSuccess("Users Added", `${inviteUsers.length} user${inviteUsers.length > 1 ? "s" : ""} added successfully.`)
     } catch (err) {
-      throw new Error((err as Error)?.message || "Failed to add user")
+      console.error("[UsersPage] add user failed:", err)
+      throw new Error("Failed to add user. Please try again.")
     }
   }
 
@@ -422,6 +411,37 @@ export function UsersPage() {
       inactive: prev.inactive.map((u) => u.id === updated.id ? updated : u),
       admin: prev.admin.map((u) => u.id === updated.id ? updated : u),
     }))
+  }
+
+  async function handleToggleAdmin(id: string, userId: string, makeAdmin: boolean) {
+    if (!selectedClient) return
+    try {
+      if (makeAdmin) {
+        await activateAdmin(selectedClient, userId)
+      } else {
+        await deactivateAdmin(selectedClient, userId)
+      }
+      setUsersByCategory((prev) => {
+        const updatedAll = prev.all.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u)
+        const updatedUser = updatedAll.find((u) => u.id === id)
+        let updatedAdmin = prev.admin
+        if (makeAdmin && updatedUser && !prev.admin.find((u) => u.id === id)) {
+          updatedAdmin = [{ ...updatedUser, isAdmin: true }, ...prev.admin]
+        } else if (!makeAdmin) {
+          updatedAdmin = prev.admin.filter((u) => u.id !== id)
+        }
+        return {
+          all: updatedAll,
+          active: prev.active.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u),
+          inactive: prev.inactive.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u),
+          admin: updatedAdmin,
+        }
+      })
+      toast.success(makeAdmin ? "Admin privileges granted." : "Admin privileges removed.")
+    } catch (err) {
+      console.error("[UsersPage] toggle admin failed:", err)
+      toast.error(makeAdmin ? "Failed to grant admin privileges. Please try again." : "Failed to remove admin privileges. Please try again.")
+    }
   }
 
   function handleExportUsersData() {
@@ -506,6 +526,7 @@ export function UsersPage() {
     visibleCols,
     loading,
     onToggleStatus: handleToggleStatus,
+    onToggleAdmin: handleToggleAdmin,
     onEdited: handleEdit,
     onAdd: () => setAddOpen(true),
     onInvite: () => setInviteOpen(true),
