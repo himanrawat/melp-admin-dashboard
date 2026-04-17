@@ -1,19 +1,22 @@
 import { IconCreditCard, IconCalendar, IconChevronRight, IconAlertCircle } from "@tabler/icons-react"
+import { Link } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+
+type UsageBarProps = Readonly<{
+  label: string
+  used: number
+  total: number
+  unit: string
+}>
 
 function UsageBar({
   label,
   used,
   total,
   unit,
-}: {
-  label: string
-  used: number
-  total: number
-  unit: string
-}) {
+}: UsageBarProps) {
   const percentage = Math.round((used / total) * 100)
   return (
     <div className="space-y-1.5">
@@ -39,9 +42,9 @@ export function PaymentsOverview() {
       <CardHeader>
         <CardTitle>Subscription</CardTitle>
         <CardAction>
-          <a href="#" className="text-xs flex items-center gap-0.5">
+          <Link to="/payments" className="flex items-center gap-0.5 text-xs">
             Manage <IconChevronRight className="size-3" />
-          </a>
+          </Link>
         </CardAction>
       </CardHeader>
 
@@ -114,9 +117,12 @@ export function PaymentsOverview() {
               $99.00 scheduled for Jan 15, 2026
             </p>
           </div>
-          <a href="#" className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0 flex items-center gap-0.5 mt-0.5">
+          <Link
+            to="/payments"
+            className="mt-0.5 flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
             View <IconChevronRight className="size-3" />
-          </a>
+          </Link>
         </div>
       </CardContent>
     </Card>

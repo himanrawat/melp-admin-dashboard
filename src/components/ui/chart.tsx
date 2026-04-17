@@ -37,6 +37,32 @@ function useChart() {
   return context
 }
 
+function toChartKeyPart(value: unknown): string | undefined {
+  if (typeof value === "string" && value) return value
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  return undefined
+}
+
+function getChartItemKey(item: {
+  graphicalItemId?: unknown
+  dataKey?: unknown
+  name?: unknown
+  color?: unknown
+  value?: unknown
+  payload?: { fill?: unknown } | null
+}): string {
+  return [
+    toChartKeyPart(item.graphicalItemId),
+    toChartKeyPart(item.dataKey),
+    toChartKeyPart(item.name),
+    toChartKeyPart(item.color),
+    toChartKeyPart(item.payload?.fill),
+    toChartKeyPart(item.value),
+  ]
+    .filter(Boolean)
+    .join("-")
+}
+
 function ChartContainer({
   id,
   className,
@@ -56,9 +82,10 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const contextValue = React.useMemo(() => ({ config }), [config])
 
   return (
-    <ChartContext.Provider value={{ config }}>
+    <ChartContext.Provider value={contextValue}>
       <div
         data-slot="chart"
         data-chart={chartId}
@@ -193,7 +220,7 @@ function ChartTooltipContent({
         className
       )}
     >
-      {!nestLabel ? tooltipLabel : null}
+      {nestLabel ? null : tooltipLabel}
       <div className="grid gap-1.5">
         {payload
           .filter((item) => item.type !== "none")
@@ -204,7 +231,7 @@ function ChartTooltipContent({
 
             return (
               <div
-                key={index}
+                key={getChartItemKey(item) || key}
                 className={cn(
                   "flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground",
                   indicator === "dot" && "items-center"
@@ -296,13 +323,13 @@ function ChartLegendContent({
     >
       {payload
         .filter((item) => item.type !== "none")
-        .map((item, index) => {
+        .map((item) => {
           const key = `${nameKey ?? item.dataKey ?? "value"}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
 
           return (
             <div
-              key={index}
+              key={getChartItemKey(item) || key}
               className={cn(
                 "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
               )}
