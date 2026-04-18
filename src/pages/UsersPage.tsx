@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react"
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
 import { IconUserPlus, IconUpload, IconLoader2 } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
 import { usePopup } from "@/components/shared/popup"
 import { type User } from "@/components/users/users-data"
 import { UsersToolbar, type UserFilters, EMPTY_FILTERS } from "@/components/users/users-toolbar"
@@ -12,11 +11,251 @@ import { UsersDataTable, DEFAULT_VISIBLE_COLS, type ColKey } from "@/components/
 import { AddUserInline, type AddUserDraft } from "@/components/users/add-user-inline"
 import { BulkUploadInline } from "@/components/users/bulk-upload-inline"
 import { InviteDialog } from "@/components/users/user-confirm-dialogs"
-import { fetchUsers, manualInviteUsers, bulkInviteUsers, activateAdmin, deactivateAdmin } from "@/api/admin"
+import {
+  fetchUsers,
+  manualInviteUsers,
+  bulkInviteUsers,
+  activateAdmin,
+  deactivateAdmin,
+  fetchDepartments,
+  fetchTitles,
+  exportUsers,
+} from "@/api/admin"
 import { getErrorDescription, getStatusCodeFromError } from "@/components/access-management/runtime"
 import { useAuth } from "@/context/auth-context"
 
-// ── Main page ─────────────────────────────────────────────
+type UserTab = "all" | "active" | "inactive" | "admin"
+
+const MIN_COLS = 4
+const DEFAULT_PAGE_SIZE = 10
+const DEFAULT_SORT = { column: "FULL_NAME", asc: true } as const
+
+const compareAlphabetically = (left: string, right: string) =>
+  left.localeCompare(right, undefined, { sensitivity: "base" })
+
+const getCategoryForTab = (tab: UserTab): 0 | 1 | 2 | 3 | undefined => {
+  if (tab === "all") return 0
+  if (tab === "active") return 1
+  if (tab === "inactive") return 2
+  if (tab === "admin") return 3
+  return undefined
+}
+
+const getFallbackStatusForTab = (
+  tab: UserTab,
+): "active" | "inactive" | undefined => {
+  if (tab === "active") return "active"
+  if (tab === "inactive") return "inactive"
+  return undefined
+}
+
+const toTextValue = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value)
+  }
+  return undefined
+}
+
+const pickTextValue = (...values: unknown[]): string => {
+  for (const value of values) {
+    const textValue = toTextValue(value)
+    if (textValue) return textValue
+  }
+  return ""
+}
+
+const buildFullName = (firstName: unknown, lastName: unknown): string => {
+  return [toTextValue(firstName), toTextValue(lastName)].filter(Boolean).join(" ").trim()
+}
+
+const formatDateValue = (value: unknown): string => {
+  const raw = toTextValue(value)
+  if (!raw || raw === "0") return ""
+
+  let date: Date
+  if (/^\d+$/.test(raw)) {
+    const num = Number(raw)
+    if (!Number.isFinite(num) || num <= 0) return ""
+    const millis = raw.length <= 10 ? num * 1000 : num
+    date = new Date(millis)
+  } else {
+    date = new Date(raw)
+  }
+
+  if (Number.isNaN(date.getTime())) return raw
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  })
+}
+
+const toStatus = (
+  raw: Record<string, unknown>,
+  fallback?: "active" | "inactive",
+): User["status"] => {
+  if (fallback) return fallback
+
+  const activeValue = raw.isActive ?? raw.isactive ?? raw.active
+  const normalized =
+    typeof activeValue === "string"
+      ? activeValue.trim().toUpperCase()
+      : activeValue
+
+  if (
+    normalized === "Y" ||
+    normalized === "YES" ||
+    normalized === "1" ||
+    normalized === 1 ||
+    normalized === true
+  ) {
+    return "active"
+  }
+
+  if (raw.status === "active" || raw.status === 1) return "active"
+  return "inactive"
+}
+
+const isAdminUser = (raw: Record<string, unknown>): boolean => {
+  const value = raw.adminStatus ?? raw.adminstatus ?? raw.isAdmin ?? raw.role
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value === 1
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    return normalized === "y" || normalized === "yes" || normalized === "1" || normalized === "admin" || normalized === "super" || normalized === "true"
+  }
+  return false
+}
+
+const isVerifiedUser = (raw: Record<string, unknown>): boolean | undefined => {
+  const value = raw.verified ?? raw.isVerified ?? raw.isverified ?? raw.emailVerified ?? raw.verifiedStatus
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value === 1
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    if (["y", "yes", "1", "true", "verified", "active"].includes(normalized)) return true
+    if (["n", "no", "0", "false", "pending", "unverified", "inactive"].includes(normalized)) return false
+  }
+  return undefined
+}
+
+const mapUser = (
+  raw: Record<string, unknown>,
+  idx: number,
+  fallback?: "active" | "inactive",
+): User => {
+  const fallbackId = `${fallback || "user"}-${idx}`
+  const fullName = buildFullName(raw.firstname, raw.lastname)
+
+  return {
+    id: pickTextValue(raw.melpid, raw.userid, raw.userId, raw.id, raw.extension) || fallbackId,
+    userId: pickTextValue(raw.userid, raw.userId, raw.id),
+    melpid: pickTextValue(raw.melpid),
+    name: pickTextValue(raw.fullname, raw.name, raw.fullName, fullName) || "Unknown",
+    email: pickTextValue(raw.email, raw.emailid),
+    avatar: pickTextValue(raw.imageUrl, raw.profileImage, raw.profile, raw.avatar),
+    isAdmin: isAdminUser(raw),
+    department: pickTextValue(raw.departmentName, raw.department, raw.dept) || "General",
+    designation: pickTextValue(raw.professionName, raw.designation, raw.title),
+    location: pickTextValue(raw.location, raw.cityname, raw.city),
+    status: toStatus(raw, fallback),
+    joinedAt: formatDateValue(pickTextValue(raw.addedOn, raw.createdDate, raw.createdate, raw.joinedAt)),
+    deactivateDate: formatDateValue(pickTextValue(raw.deactived_on, raw.deactivatedOn)),
+    verified: isVerifiedUser(raw),
+  }
+}
+
+const formatFilterDate = (date: Date): string => {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10)
+}
+
+const formatDateRangeFilter = (range: UserFilters["joiningDateRange"]): string | undefined => {
+  if (!range?.from) return undefined
+  const end = range.to ?? range.from
+  return `${formatFilterDate(range.from)},${formatFilterDate(end)}`
+}
+
+const buildUserFilters = (
+  search: string,
+  filters: UserFilters,
+): { column: string; value: string }[] => {
+  const next: { column: string; value: string }[] = []
+  const query = search.trim()
+
+  if (query) {
+    next.push(
+      { column: "FULL_NAME", value: query },
+      { column: "EMAIL", value: query },
+    )
+  }
+
+  if (filters.department) {
+    next.push({ column: "DEPARTMENT_NAME", value: filters.department })
+  }
+
+  if (filters.designation) {
+    next.push({ column: "PROFESSION_NAME", value: filters.designation })
+  }
+
+  const joiningDate = formatDateRangeFilter(filters.joiningDateRange)
+  if (joiningDate) {
+    next.push({ column: "ADDED_ON", value: joiningDate })
+  }
+
+  const deactiveDate = formatDateRangeFilter(filters.deactiveDateRange)
+  if (deactiveDate) {
+    next.push({ column: "DEACTIVED_ON", value: deactiveDate })
+  }
+
+  return next
+}
+
+const extractLookupItems = (raw: unknown): unknown[] => {
+  if (Array.isArray(raw)) return raw
+
+  const obj = raw as Record<string, unknown> | null
+  if (!obj) return []
+
+  if (Array.isArray(obj.list)) return obj.list
+  if (Array.isArray(obj.data)) return obj.data
+
+  const nestedData = obj.data as Record<string, unknown> | undefined
+  if (nestedData && typeof nestedData === "object" && Array.isArray(nestedData.list)) {
+    return nestedData.list
+  }
+
+  return []
+}
+
+const parseLookupOptions = (raw: unknown, keys: string[]): string[] => {
+  const values = extractLookupItems(raw)
+    .map((item) => {
+      if (typeof item === "string") return item.trim()
+      if (typeof item === "number" && Number.isFinite(item)) return String(item)
+      if (!item || typeof item !== "object") return undefined
+
+      const record = item as Record<string, unknown>
+      for (const key of keys) {
+        const value = toTextValue(record[key])
+        if (value) return value
+      }
+
+      return undefined
+    })
+    .filter((value): value is string => Boolean(value))
+
+  return [...new Set(values)].sort(compareAlphabetically)
+}
+
+const mergeLookupOptions = (...sources: string[][]): string[] => {
+  return [...new Set(sources.flat().filter(Boolean))].sort(compareAlphabetically)
+}
 
 export function UsersPage() {
   const { selectedClient } = useAuth()
@@ -50,340 +289,235 @@ export function UsersPage() {
     }
   }
 
-  // ── Data state ─────────────────────────────────────────
-  const [usersByCategory, setUsersByCategory] = useState<{
-    all: User[]
-    active: User[]
-    inactive: User[]
-    admin: User[]
-  }>({ all: [], active: [], inactive: [], admin: [] })
+  const [users, setUsers] = useState<User[]>([])
+  const [departments, setDepartments] = useState<string[]>([])
+  const [designations, setDesignations] = useState<string[]>([])
+  const [filterOptionsClientId, setFilterOptionsClientId] = useState<string | null>(null)
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
-  // ── UI state ───────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState("all")
+  const [activeTab, setActiveTab] = useState<UserTab>("all")
   const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [filters, setFilters] = useState<UserFilters>(EMPTY_FILTERS)
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(DEFAULT_VISIBLE_COLS))
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [serverPage, setServerPage] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [responsePageCount, setResponsePageCount] = useState(1)
+  const [responseTotalCount, setResponseTotalCount] = useState(0)
+  const [reloadToken, setReloadToken] = useState(0)
   const [addOpen, setAddOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
 
-  // ── Dialog / upload state ─────────────────────────────
   const [inviteOpen, setInviteOpen] = useState(false)
   const [bulkUploading, setBulkUploading] = useState(false)
 
-  const MIN_COLS = 4
-  const PAGE_SIZE = 200
+  const filterKey = useMemo(() => JSON.stringify({
+    department: filters.department,
+    designation: filters.designation,
+    joiningFrom: filters.joiningDateRange?.from?.toISOString() || "",
+    joiningTo: filters.joiningDateRange?.to?.toISOString() || "",
+    deactiveFrom: filters.deactiveDateRange?.from?.toISOString() || "",
+    deactiveTo: filters.deactiveDateRange?.to?.toISOString() || "",
+  }), [filters])
 
-  const parseUserList = (raw: unknown): Record<string, unknown>[] => {
-    const data = raw as Record<string, unknown>
-    const list =
-      (data?.data as Record<string, unknown>)?.list ||
-      (data?.list as unknown[]) ||
-      data?.data ||
-      []
+  const userFilters = useMemo(
+    () => buildUserFilters(debouncedSearch, filters),
+    [debouncedSearch, filters],
+  )
 
-    return Array.isArray(list) ? (list as Record<string, unknown>[]) : []
-  }
+  const activeCategory = getCategoryForTab(activeTab)
+  const activeFallbackStatus = getFallbackStatusForTab(activeTab)
 
-  const extractTotalCount = (raw: unknown): number | undefined => {
-    const data = raw as Record<string, unknown> | null
-    const direct = data?.totalCount
-    if (typeof direct === "number" && Number.isFinite(direct)) return direct
+  const totalRows = responseTotalCount > 0
+    ? responseTotalCount
+    : responsePageCount > 0 && serverPage === responsePageCount - 1
+      ? serverPage * pageSize + users.length
+      : responsePageCount > 1
+        ? responsePageCount * pageSize
+        : users.length
 
-    const nested = (data?.data as Record<string, unknown> | undefined)?.totalCount
-    if (typeof nested === "number" && Number.isFinite(nested)) return nested
+  const pageCount = Math.max(
+    1,
+    responsePageCount || (totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1),
+  )
 
-    return undefined
-  }
+  const departmentOptions = useMemo(
+    () => mergeLookupOptions(departments, users.map((user) => user.department).filter(Boolean)),
+    [departments, users],
+  )
 
-  const toStatus = (
-    raw: Record<string, unknown>,
-    fallback?: "active" | "inactive",
-  ): User["status"] => {
-    if (fallback) return fallback
+  const designationOptions = useMemo(
+    () => mergeLookupOptions(designations, users.map((user) => user.designation).filter(Boolean)),
+    [designations, users],
+  )
 
-    const activeValue = raw.isActive ?? raw.isactive ?? raw.active
-    const normalized =
-      typeof activeValue === "string"
-        ? activeValue.trim().toUpperCase()
-        : activeValue
-
-    if (normalized === "Y" || normalized === "YES" || normalized === "1" || normalized === 1 || normalized === true) {
-      return "active"
+  const handleFilterOpenChange = useCallback((open: boolean) => {
+    if (!open || !selectedClient || filterOptionsLoading || filterOptionsClientId === selectedClient) {
+      return
     }
 
-    if (raw.status === "active" || raw.status === 1) return "active"
+    setFilterOptionsLoading(true)
 
-    return "inactive"
-  }
+    void Promise.allSettled([
+      fetchDepartments(selectedClient),
+      fetchTitles(selectedClient),
+    ]).then(([departmentsResult, titlesResult]) => {
+      if (departmentsResult.status === "fulfilled") {
+        setDepartments(
+          parseLookupOptions(departmentsResult.value, [
+            "departmentName",
+            "department",
+            "name",
+            "label",
+            "value",
+          ]),
+        )
+      } else {
+        setDepartments([])
+      }
 
-  const isAdminUser = (raw: Record<string, unknown>): boolean => {
-    const value = raw.adminStatus ?? raw.adminstatus ?? raw.isAdmin ?? raw.role
-    if (typeof value === "boolean") return value
-    if (typeof value === "number") return value === 1
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase()
-      return normalized === "y" || normalized === "yes" || normalized === "1" || normalized === "admin" || normalized === "true"
-    }
-    return false
-  }
+      if (titlesResult.status === "fulfilled") {
+        setDesignations(
+          parseLookupOptions(titlesResult.value, [
+            "professionName",
+            "designation",
+            "title",
+            "name",
+            "label",
+            "value",
+          ]),
+        )
+      } else {
+        setDesignations([])
+      }
 
-  const isVerifiedUser = (raw: Record<string, unknown>): boolean | undefined => {
-    const value = raw.verified ?? raw.isVerified ?? raw.isverified ?? raw.emailVerified ?? raw.verifiedStatus
-    if (typeof value === "boolean") return value
-    if (typeof value === "number") return value === 1
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase()
-      if (["y", "yes", "1", "true", "verified", "active"].includes(normalized)) return true
-      if (["n", "no", "0", "false", "pending", "unverified", "inactive"].includes(normalized)) return false
-    }
-    return undefined
-  }
-
-  const toTextValue = (value: unknown): string | undefined => {
-    if (typeof value === "string") {
-      const trimmed = value.trim()
-      return trimmed || undefined
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value)
-    }
-    return undefined
-  }
-
-  const pickTextValue = (...values: unknown[]): string => {
-    for (const value of values) {
-      const textValue = toTextValue(value)
-      if (textValue) return textValue
-    }
-    return ""
-  }
-
-  const buildFullName = (firstName: unknown, lastName: unknown): string => {
-    return [toTextValue(firstName), toTextValue(lastName)].filter(Boolean).join(" ").trim()
-  }
-
-  const compareAlphabetically = (left: string, right: string) =>
-    left.localeCompare(right, undefined, { sensitivity: "base" })
-
-  const formatDateValue = (value: unknown): string => {
-    const raw = toTextValue(value)
-    if (!raw) return ""
-    if (raw === "0") return ""
-
-    let date: Date
-    if (/^\d+$/.test(raw)) {
-      const num = Number(raw)
-      if (!Number.isFinite(num) || num <= 0) return ""
-      const millis = raw.length <= 10 ? num * 1000 : num
-      date = new Date(millis)
-    } else {
-      date = new Date(raw)
-    }
-
-    if (Number.isNaN(date.getTime())) return raw
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
+      setFilterOptionsClientId(selectedClient)
+      setFilterOptionsLoading(false)
+    }).catch((err) => {
+      console.error("[UsersPage] filter lookup load failed:", err)
+      setFilterOptionsLoading(false)
     })
-  }
+  }, [filterOptionsClientId, filterOptionsLoading, selectedClient])
 
-  const mapUser = (
-    raw: Record<string, unknown>,
-    idx: number,
-    fallback?: "active" | "inactive",
-  ): User => {
-    const fallbackId = `${fallback || "user"}-${idx}`
-    const fullName = buildFullName(raw.firstname, raw.lastname)
+  const triggerReload = useCallback(() => {
+    setReloadToken((prev) => prev + 1)
+    setFilterOptionsClientId(null)
+  }, [])
 
-    return {
-      id: pickTextValue(raw.melpid, raw.userid, raw.userId, raw.id, raw.extension) || fallbackId,
-      userId: pickTextValue(raw.userid, raw.userId, raw.id),
-      melpid: pickTextValue(raw.melpid),
-      name: pickTextValue(raw.fullname, raw.name, raw.fullName, fullName) || "Unknown",
-      email: pickTextValue(raw.email, raw.emailid),
-      avatar: pickTextValue(raw.imageUrl, raw.profileImage, raw.profile, raw.avatar),
-      isAdmin: isAdminUser(raw),
-      department: pickTextValue(raw.departmentName, raw.department, raw.dept) || "General",
-      designation: pickTextValue(raw.professionName, raw.designation, raw.title),
-      location: pickTextValue(raw.location, raw.cityname, raw.city),
-      status: toStatus(raw, fallback),
-      joinedAt: formatDateValue(pickTextValue(raw.addedOn, raw.createdDate, raw.createdate, raw.joinedAt)),
-      deactivateDate: formatDateValue(pickTextValue(raw.deactived_on, raw.deactivatedOn)),
-      verified: isVerifiedUser(raw),
-    }
-  }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim())
+    }, 300)
 
-  // ── Load users from API ────────────────────────────────
-  const loadUsers = useCallback(async () => {
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    setServerPage(0)
+  }, [activeTab, debouncedSearch, filterKey, selectedClient])
+
+  useEffect(() => {
+    setSelectedKeys(new Set())
+  }, [activeTab, serverPage, pageSize, debouncedSearch, filterKey])
+
+  useEffect(() => {
+    setDepartments([])
+    setDesignations([])
+    setFilterOptionsClientId(null)
+    setFilterOptionsLoading(false)
+  }, [selectedClient])
+
+  useEffect(() => {
     if (!selectedClient) {
-      setUsersByCategory({ all: [], active: [], inactive: [], admin: [] })
+      setUsers([])
+      setResponsePageCount(1)
+      setResponseTotalCount(0)
       setLoading(false)
       return
     }
-    setLoading(true)
-    setError("")
-    try {
-      const fetchUserBucket = async (
-        category: 0 | 1 | 2,
-        label: string,
-        fallback?: "active" | "inactive",
-      ): Promise<User[]> => {
-        const users: User[] = []
-        let page = 1
-        let totalCount: number | undefined
 
-        while (true) {
-          const raw = await fetchUsers({
-            page,
-            pageSize: PAGE_SIZE,
-            clientid: selectedClient,
-            category,
-          })
-          const list = parseUserList(raw)
-          totalCount ??= extractTotalCount(raw)
-
-          console.log(`[UsersPage] ${label} raw page ${page}:`, raw)
-
-          users.push(...list.map((user, idx) => mapUser(user, users.length + idx, fallback)))
-
-          if (list.length < PAGE_SIZE) break
-          if (typeof totalCount === "number" && users.length >= totalCount) break
-          page += 1
-        }
-
-        return users
-      }
-
-      const [allRes, activeRes, inactiveRes] = await Promise.allSettled([
-        fetchUserBucket(0, "all users"),
-        fetchUserBucket(1, "active users", "active"),
-        fetchUserBucket(2, "inactive users", "inactive"),
-      ])
-
-      if (allRes.status === "rejected" || activeRes.status === "rejected" || inactiveRes.status === "rejected") {
-        const firstError =
-          (allRes.status === "rejected" && allRes.reason) ||
-          (activeRes.status === "rejected" && activeRes.reason) ||
-          (inactiveRes.status === "rejected" && inactiveRes.reason)
-        throw firstError
-      }
-
-      const allUsers = allRes.value
-      const activeUsers = activeRes.value
-      const inactiveUsers = inactiveRes.value
-
-      // Admin status comes from adminStatus field in the user list — no separate fetch needed
-      const adminUsers = allUsers.filter((u) => u.isAdmin)
-
-      console.groupCollapsed(`[UsersPage] User buckets for client ${selectedClient}`)
-      console.log("all (category=0):", allUsers)
-      console.log("active (category=1):", activeUsers)
-      console.log("inactive (category=2):", inactiveUsers)
-      console.log("admin (filtered):", adminUsers)
-      console.log("counts:", {
-        all: allUsers.length,
-        active: activeUsers.length,
-        inactive: inactiveUsers.length,
-        admin: adminUsers.length,
-      })
-      console.groupEnd()
-
-      setUsersByCategory({
-        all: allUsers,
-        active: activeUsers,
-        inactive: inactiveUsers,
-        admin: adminUsers,
-      })
-    } catch (err) {
-      console.error("[UsersPage] load failed:", err)
-      setError("Something went wrong while loading users. Please try again.")
-      setUsersByCategory({ all: [], active: [], inactive: [], admin: [] })
-    } finally {
+    if (activeCategory === undefined) {
+      setUsers([])
+      setResponsePageCount(1)
+      setResponseTotalCount(0)
       setLoading(false)
+      return
     }
-  }, [selectedClient])
 
-  useEffect(() => { loadUsers() }, [loadUsers])
+    let cancelled = false
 
-  useEffect(() => {
-    if (loading || error) return
+    const loadUsers = async () => {
+      setLoading(true)
+      setError("")
 
-    const visibleUsers = getFilteredUsers(activeTab)
+      try {
+        const pageResult = await fetchUsers({
+          page: serverPage + 1,
+          pageSize,
+          clientid: selectedClient,
+          category: activeCategory,
+          filters: userFilters,
+          sort: DEFAULT_SORT,
+        })
 
-    console.groupCollapsed(`[UsersPage] Visible data for tab "${activeTab}"`)
-    console.log("selectedClient:", selectedClient)
-    console.log("search:", search)
-    console.log("filters:", filters)
-    console.log("bucketCounts:", {
-      all: usersByCategory.all.length,
-      active: usersByCategory.active.length,
-      inactive: usersByCategory.inactive.length,
-      admin: usersByCategory.admin.length,
-      visible: visibleUsers.length,
-    })
-    console.log("visibleUsers:", visibleUsers)
-    console.groupEnd()
-  }, [activeTab, error, filters, loading, search, selectedClient, usersByCategory])
+        if (cancelled) return
 
-  function handleToggleCol(key: ColKey) {
+        setUsers(
+          pageResult.list
+            .map((user, idx) =>
+              mapUser(
+                user as Record<string, unknown>,
+                serverPage * pageSize + idx,
+                activeFallbackStatus,
+              ),
+            )
+            .filter((user) => activeTab !== "admin" || user.isAdmin),
+        )
+        setResponsePageCount(Number(pageResult.pageCount || 0))
+        setResponseTotalCount(Number(pageResult.totalCount || 0))
+      } catch (err) {
+        console.error("[UsersPage] load failed:", err)
+        if (!cancelled) {
+          setError("Something went wrong while loading users. Please try again.")
+          setUsers([])
+          setResponsePageCount(1)
+          setResponseTotalCount(0)
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadUsers()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeCategory,
+    activeFallbackStatus,
+    activeTab,
+    pageSize,
+    reloadToken,
+    selectedClient,
+    serverPage,
+    userFilters,
+  ])
+
+  const handleToggleCol = (key: ColKey) => {
     setVisibleCols((prev) => {
       if (prev.has(key) && prev.size <= MIN_COLS) return prev
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key); else next.add(key)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
-  // ── Counts ─────────────────────────────────────────────
-  const activeCount = usersByCategory.active.length
-  const inactiveCount = usersByCategory.inactive.length
-  const adminCount = usersByCategory.admin.length
-
-  // ── Filtering ──────────────────────────────────────────
-  const getFilteredUsers = (tab: string) => {
-    let list = [...usersByCategory.all]
-    if (tab === "active") list = [...usersByCategory.active]
-    else if (tab === "inactive") list = [...usersByCategory.inactive]
-    else if (tab === "admin") list = [...usersByCategory.admin]
-
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-    }
-    if (filters.department) list = list.filter((u) => u.department === filters.department)
-    if (filters.designation) list = list.filter((u) => u.designation === filters.designation)
-    if (filters.location) list = list.filter((u) => u.location === filters.location)
-    if (filters.joiningDateRange?.from) {
-      list = list.filter((u) => {
-        if (!u.joinedAt) return false
-        const d = new Date(u.joinedAt)
-        if (filters.joiningDateRange!.from && d < filters.joiningDateRange!.from) return false
-        if (filters.joiningDateRange!.to && d > filters.joiningDateRange!.to) return false
-        return true
-      })
-    }
-    if (filters.deactiveDateRange?.from) {
-      list = list.filter((u) => {
-        if (!u.deactivateDate) return false
-        const d = new Date(u.deactivateDate)
-        if (filters.deactiveDateRange!.from && d < filters.deactiveDateRange!.from) return false
-        if (filters.deactiveDateRange!.to && d > filters.deactiveDateRange!.to) return false
-        return true
-      })
-    }
-    return list
-  }
-
-  const users = [...usersByCategory.all]
-  const departments = [...new Set(users.map((u) => u.department))].sort(compareAlphabetically)
-  const designations = [...new Set(users.map((u) => u.designation).filter(Boolean))].sort(compareAlphabetically)
-  const locations = [...new Set(users.map((u) => u.location).filter(Boolean))].sort(compareAlphabetically)
-
-  // ── Mutations ──────────────────────────────────────────
   async function handleAdd(rows: AddUserDraft[]): Promise<void> {
     const inviteUsers = rows
       .filter((r) => r.name.trim() || r.email.trim() || r.phone.trim())
@@ -401,7 +535,8 @@ export function UsersPage() {
 
     try {
       await manualInviteUsers(inviteUsers)
-      await loadUsers()
+      setServerPage(0)
+      triggerReload()
       showSuccess("Users Added", `${inviteUsers.length} user${inviteUsers.length > 1 ? "s" : ""} added successfully.`)
     } catch (err) {
       console.error("[UsersPage] add user failed:", err)
@@ -410,62 +545,31 @@ export function UsersPage() {
   }
 
   function handleToggleStatus(id: string, newStatus: "active" | "inactive") {
-    setUsersByCategory((prev) => {
-      const allUpdated = prev.all.map((u) => (u.id === id ? { ...u, status: newStatus } : u))
-      const changedUser =
-        allUpdated.find((u) => u.id === id) ||
-        prev.active.find((u) => u.id === id) ||
-        prev.inactive.find((u) => u.id === id)
-
-      const nextActive = prev.active.filter((u) => u.id !== id)
-      const nextInactive = prev.inactive.filter((u) => u.id !== id)
-      const normalizedUser = changedUser ? { ...changedUser, status: newStatus as User["status"] } : undefined
-
-      if (normalizedUser && newStatus === "active") nextActive.unshift(normalizedUser)
-      if (normalizedUser && newStatus === "inactive") nextInactive.unshift(normalizedUser)
-
-      return {
-        all: allUpdated,
-        active: nextActive,
-        inactive: nextInactive,
-        admin: prev.admin.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
-      }
-    })
+    setUsers((prev) => prev.map((user) => (
+      user.id === id ? { ...user, status: newStatus } : user
+    )))
   }
 
   function handleEdit(updated: User) {
-    setUsersByCategory((prev) => ({
-      all: prev.all.map((u) => u.id === updated.id ? updated : u),
-      active: prev.active.map((u) => u.id === updated.id ? updated : u),
-      inactive: prev.inactive.map((u) => u.id === updated.id ? updated : u),
-      admin: prev.admin.map((u) => u.id === updated.id ? updated : u),
-    }))
+    setUsers((prev) => prev.map((user) => (
+      user.id === updated.id ? updated : user
+    )))
   }
 
   async function handleToggleAdmin(id: string, userId: string, makeAdmin: boolean) {
     if (!selectedClient) return
+
     try {
       if (makeAdmin) {
         await activateAdmin(selectedClient, userId)
       } else {
         await deactivateAdmin(selectedClient, userId)
       }
-      setUsersByCategory((prev) => {
-        const updatedAll = prev.all.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u)
-        const updatedUser = updatedAll.find((u) => u.id === id)
-        let updatedAdmin = prev.admin
-        if (makeAdmin && updatedUser && !prev.admin.find((u) => u.id === id)) {
-          updatedAdmin = [{ ...updatedUser, isAdmin: true }, ...prev.admin]
-        } else if (!makeAdmin) {
-          updatedAdmin = prev.admin.filter((u) => u.id !== id)
-        }
-        return {
-          all: updatedAll,
-          active: prev.active.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u),
-          inactive: prev.inactive.map((u) => u.id === id ? { ...u, isAdmin: makeAdmin } : u),
-          admin: updatedAdmin,
-        }
-      })
+
+      setUsers((prev) => prev.map((user) => (
+        user.id === id ? { ...user, isAdmin: makeAdmin } : user
+      )))
+
       toast.success(makeAdmin ? "Admin privileges granted." : "Admin privileges removed.")
     } catch (err) {
       console.error("[UsersPage] toggle admin failed:", err)
@@ -473,49 +577,35 @@ export function UsersPage() {
     }
   }
 
-  function handleExportUsersData() {
-    const rows = getFilteredUsers(activeTab)
-    if (!rows.length) return
+  const handleExportUsersData = useCallback(async () => {
+    if (!selectedClient) return
 
-    const headers = [
-      "Name",
-      "Email",
-      "Department",
-      "Designation",
-      "Location",
-      "Status",
-      "Joined Date",
-      "Active/Deactive Date",
-      "Admin",
-    ]
+    if (activeCategory === undefined) {
+      return
+    }
 
-    const escapeCsv = (value: string) => `"${value.replace(/"/g, "\"\"")}"`
-    const lines = [
-      headers.join(","),
-      ...rows.map((u) => [
-        escapeCsv(u.name || ""),
-        escapeCsv(u.email || ""),
-        escapeCsv(u.department || ""),
-        escapeCsv(u.designation || ""),
-        escapeCsv(u.location || ""),
-        escapeCsv(u.status || ""),
-        escapeCsv(u.joinedAt || ""),
-        escapeCsv(u.deactivateDate || ""),
-        escapeCsv(u.isAdmin ? "Yes" : "No"),
-      ].join(",")),
-    ]
+    try {
+      const { blob, filename } = await exportUsers({
+        clientid: Number(selectedClient),
+        category: activeCategory,
+        filters: userFilters,
+        sort: DEFAULT_SORT,
+      })
 
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    const stamp = new Date().toISOString().slice(0, 10)
-    anchor.href = url
-    anchor.download = `melp-users-${activeTab}-${stamp}.csv`
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
-  }
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      const stamp = new Date().toISOString().slice(0, 10)
+      anchor.href = url
+      anchor.download = filename || `melp-users-${activeTab}-${stamp}.csv`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("[UsersPage] export failed:", err)
+      toast.error(getErrorDescription(err) || "Failed to export users.")
+    }
+  }, [activeCategory, activeTab, selectedClient, userFilters])
 
   async function handleBulkFileSelected(file: File) {
     const allowedTypes = new Set([
@@ -540,7 +630,8 @@ export function UsersPage() {
     try {
       setBulkUploading(true)
       await bulkInviteUsers(file, true)
-      await loadUsers()
+      setServerPage(0)
+      triggerReload()
       setBulkOpen(false)
       toast.success("Users were uploaded successfully.")
     } catch (err) {
@@ -550,10 +641,18 @@ export function UsersPage() {
     }
   }
 
-  // ── Shared table props ─────────────────────────────────
   const tableProps = {
     visibleCols,
     loading,
+    page: serverPage,
+    pageCount,
+    pageSize,
+    totalRows,
+    onPageChange: (page: number) => setServerPage(page),
+    onPageSizeChange: (size: number) => {
+      setPageSize(size)
+      setServerPage(0)
+    },
     onToggleStatus: handleToggleStatus,
     onToggleAdmin: handleToggleAdmin,
     onEdited: handleEdit,
@@ -574,32 +673,12 @@ export function UsersPage() {
     )
   } else if (!bulkOpen) {
     mainContent = (
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as UserTab)}>
         <TabsList variant="line">
-          <TabsTrigger value="all">
-            All Users
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {usersByCategory.all.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="active">
-            Active
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {activeCount}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="inactive">
-            Inactive
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {inactiveCount}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="admin">
-            Admin
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {adminCount}
-            </Badge>
-          </TabsTrigger>
+          <TabsTrigger value="all">All Users</TabsTrigger>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="inactive">Inactive</TabsTrigger>
+          <TabsTrigger value="admin">Admin</TabsTrigger>
         </TabsList>
 
         <UsersToolbar
@@ -607,26 +686,26 @@ export function UsersPage() {
           onSearchChange={setSearch}
           filters={filters}
           onFiltersChange={setFilters}
-          departments={departments}
-          designations={designations}
-          locations={locations}
+          departments={departmentOptions}
+          designations={designationOptions}
           visibleCols={visibleCols}
           onToggleCol={handleToggleCol}
-          onExport={handleExportUsersData}
+          onExport={() => { void handleExportUsersData() }}
+          onFilterOpenChange={handleFilterOpenChange}
           minCols={MIN_COLS}
         />
 
         <TabsContent value="all" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("all")} tab="all" {...tableProps} />
+          <UsersDataTable users={users} tab="all" {...tableProps} />
         </TabsContent>
         <TabsContent value="active" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("active")} tab="active" {...tableProps} />
+          <UsersDataTable users={users} tab="active" {...tableProps} />
         </TabsContent>
         <TabsContent value="inactive" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("inactive")} tab="inactive" {...tableProps} />
+          <UsersDataTable users={users} tab="inactive" {...tableProps} />
         </TabsContent>
         <TabsContent value="admin" className="mt-4">
-          <UsersDataTable users={getFilteredUsers("admin")} tab="admin" {...tableProps} />
+          <UsersDataTable users={users} tab="admin" {...tableProps} />
         </TabsContent>
       </Tabs>
     )
@@ -636,14 +715,13 @@ export function UsersPage() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
         <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={loadUsers}>Retry</Button>
+        <Button variant="outline" size="sm" onClick={triggerReload}>Retry</Button>
       </div>
     )
   }
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-y-auto overflow-x-hidden">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>
@@ -656,7 +734,10 @@ export function UsersPage() {
             variant="outline"
             size="sm"
             disabled={bulkUploading}
-            onClick={() => { setBulkOpen(!bulkOpen); setAddOpen(false) }}
+            onClick={() => {
+              setBulkOpen(!bulkOpen)
+              setAddOpen(false)
+            }}
             className={bulkOpen ? "bg-muted" : ""}
           >
             {bulkUploading ? <IconLoader2 className="size-4 mr-1.5 animate-spin" /> : <IconUpload className="size-4 mr-1.5" />}
@@ -665,7 +746,10 @@ export function UsersPage() {
           <Button
             size="sm"
             className="melp-radius"
-            onClick={() => { setAddOpen(!addOpen); setBulkOpen(false) }}
+            onClick={() => {
+              setAddOpen(!addOpen)
+              setBulkOpen(false)
+            }}
             variant={addOpen ? "secondary" : "default"}
           >
             <IconUserPlus className="size-4 mr-1.5" />
@@ -674,7 +758,6 @@ export function UsersPage() {
         </div>
       </div>
 
-      {/* Inline bulk-upload section */}
       {bulkOpen && (
         <BulkUploadInline
           onFileSelected={(file) => void handleBulkFileSelected(file)}
@@ -683,10 +766,6 @@ export function UsersPage() {
         />
       )}
       {mainContent}
-      {/*
-
-      {/* Inline add-user section — hides tabs/table when open */}
-      {/* Dialogs */}
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   )

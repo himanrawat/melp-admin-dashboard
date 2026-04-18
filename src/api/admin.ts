@@ -1,4 +1,4 @@
-import { ApiRequestError, get, postJson, putJson, del } from "./http";
+import { ApiRequestError, get, getJwtToken, postJson, putJson, del } from "./http";
 import { loadStoredAuth, decryptWithKey, encryptWithSessionKey } from "./auth";
 import type { NormalizedList } from "@/types";
 
@@ -233,15 +233,16 @@ export const fetchUsers = async ({
 	page?: number;
 	pageSize?: number;
 	clientid?: string | number;
-	/** 0 = all, 1 = active, 2 = inactive */
+	/** 0 = all, 1 = active, 2 = inactive, 3 = admin */
 	category?: number;
 	filters?: { column: string; value: string }[];
 	sort?: { column: string; asc: boolean };
-}): Promise<unknown> => {
+}): Promise<NormalizedList> => {
 	const params = withSession({ page, pagesize: pageSize });
 	const body = { clientid, category, filters, sort };
 	const raw = await postJson("/admin/userlist", body, { params });
-	return decodeResponse(raw);
+	const decoded = await decodeResponse(raw);
+	return normalizeListResponse(decoded);
 };
 
 export const fetchUserPolicyDetails = async (
@@ -286,12 +287,14 @@ export const deactivateUsers = async (
 
 export const fetchDepartments = async (clientId: string): Promise<unknown> => {
 	const params = withSession({});
-	return get(`/admin/departments/${clientId}`, { params });
+	const raw = await get(`/admin/departments/${clientId}`, { params });
+	return decodeResponse(raw);
 };
 
 export const fetchTitles = async (clientId: string): Promise<unknown> => {
 	const params = withSession({});
-	return get(`/admin/profile/${clientId}`, { params });
+	const raw = await get(`/admin/profile/${clientId}`, { params });
+	return decodeResponse(raw);
 };
 
 export const fetchTeams = async ({
@@ -299,7 +302,7 @@ export const fetchTeams = async ({
 	pageSize = 20,
 	search = "",
 	clientid,
-	isActive = 1,
+	isActive,
 }: {
 	page?: number;
 	pageSize?: number;
@@ -309,13 +312,15 @@ export const fetchTeams = async ({
 } = {}): Promise<NormalizedList> => {
 	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
 	const params = withSession({ page, count: pageSize });
-	const body = {
+	const body: Record<string, unknown> = {
 		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
 		groupType: 0,
-		isActive,
 		query: search.trim(),
 		sort: { column: "GROUP_NAME", asc: true },
 	};
+	if (isActive !== undefined) {
+		body.isActive = isActive;
+	}
 	const raw = await postJson("/admin/group/list", body, { params });
 	const decoded = await decodeResponse(raw);
 	return normalizeListResponse(decoded);
@@ -326,7 +331,7 @@ export const fetchGroups = async ({
 	pageSize = 20,
 	search = "",
 	clientid,
-	isActive = 1,
+	isActive,
 }: {
 	page?: number;
 	pageSize?: number;
@@ -336,13 +341,15 @@ export const fetchGroups = async ({
 } = {}): Promise<NormalizedList> => {
 	const resolvedClientId = clientid ?? loadStoredAuth()?.clientid;
 	const params = withSession({ page, count: pageSize });
-	const body = {
+	const body: Record<string, unknown> = {
 		clientid: resolvedClientId ? Number(resolvedClientId) : undefined,
 		groupType: 1,
-		isActive,
 		query: search.trim(),
 		sort: { column: "GROUP_NAME", asc: true },
 	};
+	if (isActive !== undefined) {
+		body.isActive = isActive;
+	}
 	const raw = await postJson("/admin/group/list", body, { params });
 	const decoded = await decodeResponse(raw);
 	return normalizeListResponse(decoded);
@@ -420,10 +427,53 @@ export const fetchDeletedUsers = async ({
 
 export const exportUsers = async (
 	filters: Record<string, unknown> = {},
-): Promise<unknown> => {
+): Promise<{ blob: Blob; filename?: string }> => {
 	const params = withSession({});
-	const raw = await postJson("/admin/export/users/v1", filters, { params });
-	return raw; // Don't decrypt, might be a file download
+	const API_BASE = (
+		import.meta.env.VITE_MELP_API_BASE || "/MelpService/"
+	).replace(/\/+$/, "");
+	const url = new URL(`${API_BASE}/admin/export/users/v1`, window.location.origin);
+	Object.entries(params).forEach(([key, value]) => {
+		if (value !== undefined && value !== null && value !== "") {
+			url.searchParams.set(key, String(value));
+		}
+	});
+
+	const token = getJwtToken();
+	const res = await fetch(url.toString(), {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+		},
+		body: JSON.stringify(filters),
+	});
+
+	if (!res.ok) {
+		const text = await res.text().catch(() => "");
+		let body: unknown = text;
+		try {
+			body = text ? JSON.parse(text) : null;
+		} catch {
+			// Keep raw text when the export endpoint returns a non-JSON failure body.
+		}
+		throw new ApiRequestError(`Export request failed (${res.status}).`, {
+			status: res.status,
+			body,
+		});
+	}
+
+	const contentDisposition = res.headers.get("Content-Disposition") || "";
+	const filenameMatch =
+		/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition);
+	const filename = filenameMatch
+		? decodeURIComponent(filenameMatch[1] || filenameMatch[2] || "")
+		: undefined;
+
+	return {
+		blob: await res.blob(),
+		filename,
+	};
 };
 
 export const fetchTeamById = async (
@@ -454,7 +504,7 @@ export const fetchTeamParticipants = async (
 	groupid: string,
 	clientid: string,
 	page = 1,
-	count = 20,
+	count?: number,
 ): Promise<NormalizedList> => {
 	const params = withSession({ clientid, page, count });
 	const raw = await get(`/admin/group/${groupid}/participant`, { params });

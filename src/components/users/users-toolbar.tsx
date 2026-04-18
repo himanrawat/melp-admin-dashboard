@@ -35,7 +35,6 @@ export type UserFilters = {
   designation: string
   joiningDateRange: DateRange | undefined
   deactiveDateRange: DateRange | undefined
-  location: string
 }
 
 export const EMPTY_FILTERS: UserFilters = {
@@ -43,14 +42,12 @@ export const EMPTY_FILTERS: UserFilters = {
   designation: "",
   joiningDateRange: undefined,
   deactiveDateRange: undefined,
-  location: "",
 }
 
 function countActiveFilters(filters: UserFilters): number {
   let count = 0
   if (filters.department) count++
   if (filters.designation) count++
-  if (filters.location) count++
   if (filters.joiningDateRange?.from) count++
   if (filters.deactiveDateRange?.from) count++
   return count
@@ -113,10 +110,10 @@ export function UsersToolbar({
   onFiltersChange,
   departments,
   designations,
-  locations,
   visibleCols,
   onToggleCol,
   onExport,
+  onFilterOpenChange,
   minCols,
 }: {
   search: string
@@ -125,10 +122,10 @@ export function UsersToolbar({
   onFiltersChange: (filters: UserFilters) => void
   departments: string[]
   designations: string[]
-  locations: string[]
   visibleCols: Set<ColKey>
   onToggleCol: (key: ColKey) => void
   onExport: () => void
+  onFilterOpenChange?: (open: boolean) => void
   minCols?: number
 }) {
   const atMin = minCols !== undefined && visibleCols.size <= minCols
@@ -137,6 +134,7 @@ export function UsersToolbar({
 
   function handleOpen(open: boolean) {
     if (open) setDraft(filters)
+    onFilterOpenChange?.(open)
   }
 
   function handleApply() {
@@ -215,22 +213,6 @@ export function UsersToolbar({
                   <SelectItem value="__all__">All Designations</SelectItem>
                   {designations.map((d) => (
                     <SelectItem key={d} value={d}>{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Location */}
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Location</Label>
-              <Select value={draft.location || "__all__"} onValueChange={(v) => setDraft({ ...draft, location: v === "__all__" ? "" : v })}>
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue placeholder="All Locations" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Locations</SelectItem>
-                  {locations.map((l) => (
-                    <SelectItem key={l} value={l}>{l}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

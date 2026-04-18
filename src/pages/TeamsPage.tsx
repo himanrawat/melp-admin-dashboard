@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   IconPlus,
   IconSearch,
@@ -8,7 +8,6 @@ import {
   IconUserX,
   IconPencil,
   IconEye,
-  IconFilter,
   IconDownload,
   IconKey,
   IconUserMinus,
@@ -19,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+import { Skeleton } from "@/components/ui/skeleton"
 import { InputGroup, InputGroupInput, InputGroupAddon, InputGroupButton } from "@/components/ui/input-group"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import {
@@ -27,20 +27,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  PopoverClose,
-} from "@/components/ui/popover"
-
 import {
   Sheet,
   SheetContent,
@@ -75,6 +61,10 @@ type Team = {
   topics: string[]
 }
 
+type TeamTab = "all" | "active" | "archived"
+const DEFAULT_PAGE_SIZE = 10
+const MEMBER_BATCH_SIZE = 10
+
 type TeamMember = {
   melpid: string
   fullName: string
@@ -93,18 +83,10 @@ type AddableUser = {
   imageUrl: string
 }
 
-type TeamFilters = {
-  department: string
-  lead: string
-}
-
-const EMPTY_FILTERS: TeamFilters = { department: "", lead: "" }
-
-function countActiveFilters(filters: TeamFilters): number {
-  let count = 0
-  if (filters.department) count++
-  if (filters.lead) count++
-  return count
+function mergeMembers<T extends { melpid: string }>(current: T[], next: T[]): T[] {
+  if (current.length === 0) return next
+  const seen = new Set(current.map((member) => member.melpid))
+  return [...current, ...next.filter((member) => !seen.has(member.melpid))]
 }
 
 function formatDisplayDate(value: unknown): string {
@@ -133,11 +115,18 @@ function normalizeTeam(record: Record<string, unknown>, idx: number): Team {
       return ""
     })
     .filter((topic) => topic.trim().length > 0)
+  const memberCount = Number(
+    record.participants ??
+    record.participantcount ??
+    record.participantCount ??
+    record.members ??
+    0,
+  )
   return {
     id: String(record.groupId || record.groupid || record.id || idx),
     name: String(record.groupName || record.groupname || record.name || "Unnamed"),
     department: String(record.department || record.category || "General"),
-    members: Number(record.participants || record.participantcount || record.members || 0),
+    members: Number.isNaN(memberCount) ? 0 : memberCount,
     lead: String(record.ownerUsername || record.admin || record.lead || record.createdby || "—"),
     status: normalizedStatus,
     createdAt: formatDisplayDate(record.createdAt || record.createddate),
@@ -187,56 +176,94 @@ function AddTeamSheet({ open, onClose, onAdd }: { open: boolean; onClose: () => 
 export function TeamsPage() {
   const { selectedClient } = useAuth()
   const { danger, warning } = usePopup()
-  const [teamsByCategory, setTeamsByCategory] = useState<{
-    all: Team[]
-    active: Team[]
-    archived: Team[]
-  }>({ all: [], active: [], archived: [] })
+  const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [activeTab, setActiveTab] = useState("all")
+  const [activeTab, setActiveTab] = useState<TeamTab>("all")
   const [search, setSearch] = useState("")
-  const [filters, setFilters] = useState<TeamFilters>(EMPTY_FILTERS)
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [serverPage, setServerPage] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [responsePageCount, setResponsePageCount] = useState(1)
+  const [responseTotalCount, setResponseTotalCount] = useState(0)
   const [addOpen, setAddOpen] = useState(false)
   const [detailsTeam, setDetailsTeam] = useState<Team | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [detailsTab, setDetailsTab] = useState<"members" | "topics">("members")
   const [members, setMembers] = useState<TeamMember[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
+  const [memberPage, setMemberPage] = useState(0)
+  const [memberPageCount, setMemberPageCount] = useState(1)
+  const [memberTotalCount, setMemberTotalCount] = useState<number | null>(null)
   const [memberActionLoading, setMemberActionLoading] = useState("")
   const [addMemberSearch, setAddMemberSearch] = useState("")
   const [addMemberResults, setAddMemberResults] = useState<AddableUser[]>([])
   const [addMemberLoading, setAddMemberLoading] = useState(false)
   const [pendingMembers, setPendingMembers] = useState<Record<string, { melpid: string; admin: boolean }>>({})
   const [addMembersSubmitting, setAddMembersSubmitting] = useState(false)
+  const membersScrollRef = useRef<HTMLDivElement | null>(null)
+  const membersEndRef = useRef<HTMLDivElement | null>(null)
+  const memberRequestIdRef = useRef(0)
+  const memberLoadLockRef = useRef(false)
 
   const loadTeams = useCallback(async () => {
+    if (!selectedClient) {
+      setTeams([])
+      setResponsePageCount(1)
+      setResponseTotalCount(0)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError("")
     try {
-      const [activeResult, archivedResult] = await Promise.all([
-        fetchTeams({ page: 1, pageSize: 200, search: "", clientid: selectedClient || undefined, isActive: 1 }),
-        fetchArchivedTeamGroups({ groupType: 0, page: 1, pageSize: 200, search: "", clientid: selectedClient || undefined }),
-      ])
-      const activeList = (activeResult?.list || []) as Record<string, unknown>[]
-      const archivedList = (archivedResult?.list || []) as Record<string, unknown>[]
-      const activeTeams = activeList.map((team, idx) => normalizeTeam(team, idx))
-      const archivedTeams = archivedList.map((team, idx) => ({ ...normalizeTeam(team, idx), status: "inactive" as const }))
-      const allTeams = [...activeTeams, ...archivedTeams]
-      setTeamsByCategory({ all: allTeams, active: activeTeams, archived: archivedTeams })
+      const result = activeTab === "archived"
+        ? await fetchArchivedTeamGroups({
+          groupType: 0,
+          page: serverPage + 1,
+          pageSize,
+          search: debouncedSearch,
+          clientid: selectedClient,
+        })
+        : await fetchTeams({
+          page: serverPage + 1,
+          pageSize,
+          search: debouncedSearch,
+          clientid: selectedClient,
+          isActive: activeTab === "active" ? 1 : undefined,
+        })
+      const list = (result.list || []) as Record<string, unknown>[]
+      setTeams(
+        list.map((team, idx) => {
+          const mapped = normalizeTeam(team, serverPage * pageSize + idx)
+          return activeTab === "archived" ? { ...mapped, status: "inactive" as const } : mapped
+        }),
+      )
+      setResponsePageCount(Number(result.pageCount || 0))
+      setResponseTotalCount(Number(result.totalCount || 0))
     } catch (err) {
       console.error("[TeamsPage] load failed:", err)
       setError("Something went wrong while loading teams. Please try again.")
-      setTeamsByCategory({ all: [], active: [], archived: [] })
+      setTeams([])
+      setResponsePageCount(1)
+      setResponseTotalCount(0)
     } finally {
       setLoading(false)
     }
-  }, [selectedClient])
+  }, [activeTab, debouncedSearch, pageSize, selectedClient, serverPage])
 
-  const loadParticipants = useCallback(async (groupId: string) => {
+  const loadParticipants = useCallback(async (
+    groupId: string,
+    page: number,
+  ) => {
     if (!selectedClient) return
+    const requestId = ++memberRequestIdRef.current
+    memberLoadLockRef.current = true
     setMembersLoading(true)
     try {
-      const result = await fetchTeamParticipants(groupId, selectedClient, 1, 200)
+      const result = await fetchTeamParticipants(groupId, selectedClient, page, MEMBER_BATCH_SIZE)
+      if (requestId !== memberRequestIdRef.current) return
       const list = (result.list || []) as Record<string, unknown>[]
       const mapped: TeamMember[] = list.map((participant, idx) => ({
         melpid: String(participant.usermelpid || participant.melpid || participant.userMelpId || idx),
@@ -247,46 +274,114 @@ export function TeamsPage() {
         imageUrl: String(participant.userimages || participant.imageUrl || participant.image || ""),
         isAdmin: Boolean(participant.isAdmin && Number(participant.isAdmin) !== 0),
       }))
-      setMembers(mapped)
+      setMembers((prev) => (page === 1 ? mapped : mergeMembers(prev, mapped)))
+      setMemberPage(page)
+
+      const nextTotalCount = result.totalCount !== undefined ? Number(result.totalCount) : undefined
+      const nextPageCount = result.pageCount !== undefined ? Number(result.pageCount) : undefined
+
+      if (nextTotalCount !== undefined && !Number.isNaN(nextTotalCount)) {
+        setMemberTotalCount(nextTotalCount)
+        setDetailsTeam((prev) => (prev && prev.id === groupId ? { ...prev, members: nextTotalCount } : prev))
+      } else if (page === 1) {
+        setMemberTotalCount(null)
+      }
+
+      if (nextPageCount !== undefined && !Number.isNaN(nextPageCount)) {
+        setMemberPageCount(Math.max(1, nextPageCount))
+      } else if (nextTotalCount !== undefined && !Number.isNaN(nextTotalCount)) {
+        setMemberPageCount(Math.max(1, Math.ceil(nextTotalCount / MEMBER_BATCH_SIZE)))
+      } else {
+        setMemberPageCount((prev) => Math.max(prev, page))
+      }
     } catch {
-      setMembers([])
+      if (requestId !== memberRequestIdRef.current) return
+      if (page === 1) {
+        setMembers([])
+        setMemberPage(0)
+        setMemberPageCount(1)
+        setMemberTotalCount(null)
+      }
     } finally {
-      setMembersLoading(false)
+      if (requestId === memberRequestIdRef.current) {
+        setMembersLoading(false)
+        memberLoadLockRef.current = false
+      }
     }
   }, [selectedClient])
 
-  useEffect(() => { loadTeams() }, [loadTeams])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim())
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [search])
 
-  const activeCount = teamsByCategory.active.length
-  const archivedCount = teamsByCategory.archived.length
+  useEffect(() => {
+    setServerPage(0)
+  }, [activeTab, debouncedSearch, selectedClient])
 
-  const allTeams = teamsByCategory.all
-  const departments = [...new Set(allTeams.map((t) => t.department))].sort()
-  const leads = [...new Set(allTeams.map((t) => t.lead).filter((l) => l !== "—"))].sort()
+  useEffect(() => {
+    void loadTeams()
+  }, [loadTeams])
 
-  const getFilteredTeams = (tab: string) => {
-    let list = [...teamsByCategory.all]
-    if (tab === "active") list = [...teamsByCategory.active]
-    else if (tab === "archived") list = [...teamsByCategory.archived]
+  const totalRows = responseTotalCount > 0
+    ? responseTotalCount
+    : responsePageCount > 0 && serverPage === responsePageCount - 1
+      ? serverPage * pageSize + teams.length
+      : responsePageCount > 1
+        ? responsePageCount * pageSize
+        : teams.length
 
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter((t) => t.name.toLowerCase().includes(q) || t.lead.toLowerCase().includes(q))
-    }
-    if (filters.department) list = list.filter((t) => t.department === filters.department)
-    if (filters.lead) list = list.filter((t) => t.lead === filters.lead)
-    return list
-  }
+  const pageCount = Math.max(
+    1,
+    responsePageCount || (totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1),
+  )
+  const memberTotalRows = memberTotalCount ?? detailsTeam?.members ?? null
+  const memberDisplayStart = memberTotalRows === null || memberTotalRows === 0 ? 0 : Math.max(1, (memberPage - 1) * MEMBER_BATCH_SIZE + 1)
+  const memberDisplayEnd = memberTotalRows === null || memberTotalRows === 0 ? 0 : Math.min(memberPage * MEMBER_BATCH_SIZE, memberTotalRows)
+  const hasMoreMembers = memberPage < memberPageCount && (memberTotalRows === null || memberTotalRows > members.length)
+
+  useEffect(() => {
+    if (
+      !detailsOpen ||
+      !detailsTeam ||
+      detailsTab !== "members" ||
+      !hasMoreMembers ||
+      membersLoading
+    ) return
+
+    const root = membersScrollRef.current
+    const sentinel = membersEndRef.current
+    if (!root || !sentinel) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (!entry?.isIntersecting || memberLoadLockRef.current) return
+        void loadParticipants(detailsTeam.id, memberPage + 1)
+      },
+      { root, rootMargin: "0px 0px 160px 0px" },
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [detailsOpen, detailsTab, detailsTeam, hasMoreMembers, loadParticipants, memberPage, membersLoading])
+
+
 
   function handleAdd(data: Omit<Team, "id" | "createdAt">) {
-    setTeamsByCategory((prev) => {
-      const newTeam: Team = { ...data, id: String(Date.now()), createdAt: new Date().toISOString().split("T")[0], topics: data.topics || [] }
-      return {
-        all: [newTeam, ...prev.all],
-        active: [newTeam, ...prev.active],
-        archived: prev.archived,
-      }
-    })
+    if (activeTab === "archived") return
+
+    const newTeam: Team = {
+      ...data,
+      id: String(Date.now()),
+      createdAt: new Date().toISOString().split("T")[0],
+      topics: data.topics || [],
+    }
+
+    setTeams((prev) => [newTeam, ...prev].slice(0, pageSize))
+    setResponseTotalCount((prev) => (prev > 0 ? prev + 1 : prev))
   }
 
   function handleToggleStatus(team: Team) {
@@ -315,10 +410,15 @@ export function TeamsPage() {
   async function openTeamDetails(team: Team) {
     setDetailsTeam(team)
     setDetailsOpen(true)
+    setDetailsTab("members")
+    setMembers([])
+    setMemberPage(0)
+    setMemberPageCount(Math.max(1, Math.ceil(team.members / MEMBER_BATCH_SIZE) || 1))
+    setMemberTotalCount(null)
     setAddMemberSearch("")
     setAddMemberResults([])
     setPendingMembers({})
-    await loadParticipants(team.id)
+    await loadParticipants(team.id, 1)
   }
 
   async function searchUsersToAdd() {
@@ -339,12 +439,8 @@ export function TeamsPage() {
           { column: "ACTIVE", value: "Y" },
         ],
         sort: { column: "FULL_NAME", asc: true },
-      }) as Record<string, unknown>
-      const rawList = (
-        (result.data as Record<string, unknown> | undefined)?.list
-        || result.list
-        || []
-      ) as Record<string, unknown>[]
+      })
+      const rawList = result.list as Record<string, unknown>[]
       const mapped: AddableUser[] = rawList.map((raw, idx) => ({
         melpid: String(raw.melpid || raw.usermelpid || raw.userMelpId || idx),
         fullName: String(raw.fullname || raw.userFullName || raw.name || "Unknown"),
@@ -389,7 +485,10 @@ export function TeamsPage() {
       setPendingMembers({})
       setAddMemberSearch("")
       setAddMemberResults([])
-      await Promise.all([loadParticipants(detailsTeam.id), loadTeams()])
+      await Promise.all([
+        loadParticipants(detailsTeam.id, 1),
+        loadTeams(),
+      ])
     } catch (err) {
       console.error("[TeamsPage] add members failed:", err)
       setError("Failed to add members. Please try again.")
@@ -406,7 +505,10 @@ export function TeamsPage() {
     try {
       await fn()
       if (detailsTeam) {
-        await Promise.all([loadParticipants(detailsTeam.id), loadTeams()])
+        await Promise.all([
+          loadParticipants(detailsTeam.id, 1),
+          loadTeams(),
+        ])
       }
     } catch (err) {
       console.error("[TeamsPage] member action failed:", err)
@@ -417,7 +519,7 @@ export function TeamsPage() {
   }
 
   function handleExport() {
-    const rows = getFilteredTeams(activeTab)
+    const rows = teams
     if (!rows.length) return
     const headers = ["Team", "Department", "Team Lead", "Members", "Status", "Created"]
     const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`
@@ -444,20 +546,6 @@ export function TeamsPage() {
   }
 
   // ── Filter popover state ──────────────────────────────
-  const [draft, setDraft] = useState<TeamFilters>(EMPTY_FILTERS)
-  const activeFilterCount = countActiveFilters(filters)
-
-  function handleFilterOpen(open: boolean) {
-    if (open) setDraft(filters)
-  }
-  function handleApplyFilters() {
-    setFilters(draft)
-  }
-  function handleResetFilters() {
-    setDraft(EMPTY_FILTERS)
-    setFilters(EMPTY_FILTERS)
-  }
-
   const teamColumns: ColumnDef<Team>[] = [
     {
       id: "name",
@@ -539,26 +627,11 @@ export function TeamsPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TeamTab)}>
         <TabsList variant="line">
-          <TabsTrigger value="all">
-            All Teams
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {teamsByCategory.all.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="active">
-            Active
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {activeCount}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="archived">
-            Archived
-            <Badge variant="secondary" className="ml-1.5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-              {archivedCount}
-            </Badge>
-          </TabsTrigger>
+          <TabsTrigger value="all">All Teams</TabsTrigger>
+          <TabsTrigger value="active">Active</TabsTrigger>
+          <TabsTrigger value="archived">Archived</TabsTrigger>
         </TabsList>
 
         {/* Toolbar */}
@@ -574,61 +647,6 @@ export function TeamsPage() {
             />
           </div>
 
-          {/* Filter button */}
-          <Popover onOpenChange={handleFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <IconFilter className="size-4" />
-                Filter
-                {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200 border-0 text-[10px] px-1.5 py-0">
-                    {activeFilterCount}
-                  </Badge>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-80 p-0">
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <h4 className="text-sm font-semibold">Filters</h4>
-                {activeFilterCount > 0 && (
-                  <button onClick={handleResetFilters} className="text-xs text-muted-foreground hover:text-foreground">
-                    Clear all
-                  </button>
-                )}
-              </div>
-              <div className="grid gap-3 p-4 max-h-96 overflow-y-auto">
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Department</Label>
-                  <Select value={draft.department || "__all__"} onValueChange={(v) => setDraft({ ...draft, department: v === "__all__" ? "" : v })}>
-                    <SelectTrigger size="sm" className="w-full"><SelectValue placeholder="All Departments" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Departments</SelectItem>
-                      {departments.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Team Lead</Label>
-                  <Select value={draft.lead || "__all__"} onValueChange={(v) => setDraft({ ...draft, lead: v === "__all__" ? "" : v })}>
-                    <SelectTrigger size="sm" className="w-full"><SelectValue placeholder="All Leads" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Leads</SelectItem>
-                      {leads.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-                <PopoverClose asChild>
-                  <Button variant="outline" size="sm" onClick={handleResetFilters}>Reset</Button>
-                </PopoverClose>
-                <PopoverClose asChild>
-                  <Button size="sm" onClick={handleApplyFilters}>Apply Filters</Button>
-                </PopoverClose>
-              </div>
-            </PopoverContent>
-          </Popover>
-
           <div className="flex-1" />
 
           {/* Export */}
@@ -638,18 +656,50 @@ export function TeamsPage() {
           </Button>
         </div>
 
-        <TabsContent value="all" className="mt-4">
-          <DataTable<Team> columns={teamColumns} data={getFilteredTeams("all")} rowKey={(t) => t.id} loading={loading} loadingRows={8} emptyState={<span>No teams found.</span>} paginated rowClassName={(t) => t.status === "inactive" ? "row-inactive" : undefined} />
-        </TabsContent>
-        <TabsContent value="active" className="mt-4">
-          <DataTable<Team> columns={teamColumns} data={getFilteredTeams("active")} rowKey={(t) => t.id} loading={loading} loadingRows={8} emptyState={<span>No active teams found.</span>} paginated />
-        </TabsContent>
-        <TabsContent value="archived" className="mt-4">
-          <DataTable<Team> columns={teamColumns} data={getFilteredTeams("archived")} rowKey={(t) => t.id} loading={loading} loadingRows={8} emptyState={<span>No archived teams found.</span>} paginated rowClassName={(t) => t.status === "inactive" ? "row-inactive" : undefined} />
-        </TabsContent>
+        <div className="mt-4">
+          <DataTable<Team>
+            columns={teamColumns}
+            data={teams}
+            rowKey={(t) => t.id}
+            loading={loading}
+            loadingRows={8}
+            emptyState={
+              <span>
+                {activeTab === "archived"
+                  ? "No archived teams found."
+                  : activeTab === "active"
+                    ? "No active teams found."
+                    : "No teams found."}
+              </span>
+            }
+            paginated
+            page={serverPage}
+            pageCount={pageCount}
+            totalRows={totalRows}
+            pageSize={pageSize}
+            onPageChange={setServerPage}
+            onPageSizeChange={setPageSize}
+            rowClassName={(t) => t.status === "inactive" ? "row-inactive" : undefined}
+          />
+        </div>
       </Tabs>
 
-      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+      <Sheet
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open)
+          if (open) return
+          memberRequestIdRef.current += 1
+          memberLoadLockRef.current = false
+          setDetailsTeam(null)
+          setDetailsTab("members")
+          setMembers([])
+          setMembersLoading(false)
+          setMemberPage(0)
+          setMemberPageCount(1)
+          setMemberTotalCount(null)
+        }}
+      >
         <SheetContent side="right" className="sm:max-w-xl w-full flex flex-col p-0 gap-0">
           {/* Fixed header */}
           <SheetHeader className="px-6 py-4 border-b shrink-0">
@@ -676,11 +726,13 @@ export function TeamsPage() {
           </SheetHeader>
 
           {/* Scrollable body */}
-          <div className="flex-1 overflow-y-auto">
+          <div ref={membersScrollRef} className="flex-1 overflow-y-auto">
             {detailsTeam && (
-              <Tabs defaultValue="members" className="px-6 py-4">
+              <Tabs value={detailsTab} onValueChange={(value) => setDetailsTab(value as "members" | "topics")} className="px-6 py-4">
                 <TabsList>
-                  <TabsTrigger value="members">Members ({members.length})</TabsTrigger>
+                  <TabsTrigger value="members">
+                    {memberTotalRows === null ? "Members" : `Members (${memberTotalRows})`}
+                  </TabsTrigger>
                   <TabsTrigger value="topics">Topics ({detailsTeam.topics.length})</TabsTrigger>
                 </TabsList>
 
@@ -757,9 +809,70 @@ export function TeamsPage() {
 
                   {/* Members list */}
                   <div className="space-y-3">
-                    <h4 className="text-sm font-semibold">Members ({members.length})</h4>
-                    {membersLoading ? (
-                      <p className="text-sm text-muted-foreground">Loading members...</p>
+                    <h4 className="text-sm font-semibold">
+                      {memberTotalRows === null ? "Members" : `Members (${memberTotalRows})`}
+                    </h4>
+                    {false && (
+                        <div className="flex items-center gap-2">
+                          <span>{memberDisplayStart}-{memberDisplayEnd} of {memberTotalRows}</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="size-8"
+                              disabled={memberPage === 0 || membersLoading}
+                              onClick={() => setMemberPage(0)}
+                              aria-label="First members page"
+                            >
+                              «
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="size-8"
+                              disabled={memberPage === 0 || membersLoading}
+                              onClick={() => setMemberPage((prev) => Math.max(0, prev - 1))}
+                              aria-label="Previous members page"
+                            >
+                              ‹
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="size-8"
+                              disabled={memberPage >= memberPageCount - 1 || membersLoading}
+                              onClick={() => setMemberPage((prev) => Math.min(memberPageCount - 1, prev + 1))}
+                              aria-label="Next members page"
+                            >
+                              ›
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="size-8"
+                              disabled={memberPage >= memberPageCount - 1 || membersLoading}
+                              onClick={() => setMemberPage(Math.max(0, memberPageCount - 1))}
+                              aria-label="Last members page"
+                            >
+                              »
+                            </Button>
+                          </div>
+                        </div>
+                    )}
+                    {membersLoading && members.length === 0 ? (
+                      <div className="space-y-3">
+                        {Array.from({ length: 3 }, (_, index) => (
+                          <div key={index} className="flex items-center gap-3 py-2.5">
+                            <Skeleton className="size-8 shrink-0 rounded-lg" />
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-3 w-48" />
+                            </div>
+                            <Skeleton className="h-7 w-20 shrink-0" />
+                            <Skeleton className="size-8 shrink-0" />
+                          </div>
+                        ))}
+                      </div>
                     ) : members.length === 0 ? (
                       <p className="text-sm text-muted-foreground">No members found.</p>
                     ) : (
@@ -820,6 +933,11 @@ export function TeamsPage() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {members.length > 0 && (
+                      <div ref={membersEndRef} className="py-1 text-center text-xs text-muted-foreground">
+                        {membersLoading ? "Loading more members..." : hasMoreMembers ? "Scroll to load more" : ""}
                       </div>
                     )}
                   </div>

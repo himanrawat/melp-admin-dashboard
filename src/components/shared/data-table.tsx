@@ -74,8 +74,18 @@ export type DataTableProps<T> = {
   paginated?: boolean;
   /** Number of rows per page. Only used when `paginated` is `true`. @default 10 */
   pageSize?: number;
-  /** Available page-size options shown in the selector. @default [10, 20, 30, 50] */
+  /** Available page-size options shown in the selector. @default [10, 20, 30, 40, 50] */
   pageSizeOptions?: number[];
+  /** Zero-based current page for externally controlled pagination. */
+  page?: number;
+  /** Total page count for externally controlled pagination. */
+  pageCount?: number;
+  /** Total rows across all pages for externally controlled pagination. */
+  totalRows?: number;
+  /** Called when the page changes. Enables externally controlled pagination. */
+  onPageChange?: (page: number) => void;
+  /** Called when rows per page changes. Enables externally controlled page size. */
+  onPageSizeChange?: (size: number) => void;
   /** Show checkboxes for row selection. */
   selectable?: boolean;
   /** Currently selected row keys. */
@@ -387,7 +397,7 @@ function DataTableDataBody<T>({
 // Pagination controls
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE_OPTIONS_DEFAULT = [10, 20, 30, 50];
+const PAGE_SIZE_OPTIONS_DEFAULT = [10, 20, 30, 40, 50];
 
 function DataTablePagination({
   page,
@@ -536,8 +546,13 @@ export function DataTable<T>({
   caption,
   className,
   paginated = false,
-  pageSize: initialPageSize = 10,
+  pageSize: pageSizeProp = 10,
   pageSizeOptions = PAGE_SIZE_OPTIONS_DEFAULT,
+  page: controlledPage,
+  pageCount: controlledPageCount,
+  totalRows: controlledTotalRows,
+  onPageChange,
+  onPageSizeChange,
   selectable = false,
   selectedKeys,
   onSelectionChange,
@@ -547,25 +562,52 @@ export function DataTable<T>({
   const cellPadding = compact ? CELL_PADDING_COMPACT : CELL_PADDING_DEFAULT;
 
   const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(initialPageSize);
-
-  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+  const [localPageSize, setLocalPageSize] = useState(pageSizeProp);
+  const isControlledPagination =
+    paginated &&
+    (
+      controlledPage !== undefined ||
+      controlledPageCount !== undefined ||
+      controlledTotalRows !== undefined ||
+      onPageChange !== undefined ||
+      onPageSizeChange !== undefined
+    );
+  const pageSize = isControlledPagination ? pageSizeProp : localPageSize;
+  const totalRows = isControlledPagination ? Math.max(0, controlledTotalRows ?? data.length) : data.length;
+  const pageCount = isControlledPagination
+    ? Math.max(1, controlledPageCount ?? (totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1))
+    : Math.max(1, Math.ceil(data.length / pageSize));
 
   // Reset to first page when data length changes or page size changes
-  const safeCurrentPage = currentPage >= pageCount ? 0 : currentPage;
+  const safeCurrentPage = isControlledPagination
+    ? Math.min(Math.max(controlledPage ?? 0, 0), Math.max(pageCount - 1, 0))
+    : currentPage >= pageCount ? 0 : currentPage;
 
   const visibleData = useMemo(() => {
-    if (!paginated || loading) return data;
+    if (!paginated || loading || isControlledPagination) return data;
     const start = safeCurrentPage * pageSize;
     return data.slice(start, start + pageSize);
-  }, [paginated, loading, data, safeCurrentPage, pageSize]);
+  }, [paginated, loading, data, safeCurrentPage, pageSize, isControlledPagination]);
 
   const isEmpty = !loading && data.length === 0;
 
   const handlePageSizeChange = (size: number) => {
-    setPageSize(size);
+    if (isControlledPagination) {
+      onPageSizeChange?.(size);
+      onPageChange?.(0);
+      return;
+    }
+    setLocalPageSize(size);
     setCurrentPage(0);
   };
+
+  const handlePageChange = useCallback((nextPage: number) => {
+    if (isControlledPagination) {
+      onPageChange?.(nextPage);
+      return;
+    }
+    setCurrentPage(nextPage);
+  }, [isControlledPagination, onPageChange]);
 
   // Selection helpers
   const allKeys = useMemo(() => {
@@ -656,8 +698,8 @@ export function DataTable<T>({
           pageCount={pageCount}
           pageSize={pageSize}
           pageSizeOptions={pageSizeOptions}
-          totalRows={data.length}
-          onPageChange={setCurrentPage}
+          totalRows={totalRows}
+          onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
         />
       )}
