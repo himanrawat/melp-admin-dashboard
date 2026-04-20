@@ -202,11 +202,13 @@ export const activateAdmin = async (
 	clientid: string,
 	userid: string,
 ): Promise<unknown> => {
-	// AdminPanel/admin mirrors the old backend endpoint.
-	// clientid, userid, and current-admin melpid must all be AES-encrypted with the session key.
+	// AdminPanel/admin is a legacy endpoint that decrypts every URL param.
+	// Send only the three encrypted params the old panel sends — no sessionid or extras.
 	const encUserId = await encryptWithSessionKey(userid);
 	const encClientId = await encryptWithSessionKey(clientid);
-	const params = withAccessMelpid({ clientid: encClientId, userid: encUserId });
+	const encMelpid = getEncryptedMelpid();
+	const params: Params = { userid: encUserId, clientid: encClientId };
+	if (encMelpid) params.melpid = encMelpid;
 	return postJson("/AdminPanel/admin", {}, { params });
 };
 
@@ -216,7 +218,9 @@ export const deactivateAdmin = async (
 ): Promise<unknown> => {
 	const encUserId = await encryptWithSessionKey(userid);
 	const encClientId = await encryptWithSessionKey(clientid);
-	const params = withAccessMelpid({ clientid: encClientId, userid: encUserId });
+	const encMelpid = getEncryptedMelpid();
+	const params: Params = { userid: encUserId, clientid: encClientId };
+	if (encMelpid) params.melpid = encMelpid;
 	return del("/AdminPanel/admin", { params });
 };
 

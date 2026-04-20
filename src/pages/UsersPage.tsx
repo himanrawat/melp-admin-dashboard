@@ -125,7 +125,10 @@ export function UsersPage() {
     if (typeof value === "number") return value === 1
     if (typeof value === "string") {
       const normalized = value.trim().toLowerCase()
-      return normalized === "y" || normalized === "yes" || normalized === "1" || normalized === "admin" || normalized === "true"
+      // Match old SPA logic: any non-empty, non-"null", non-"not-admin" value = admin
+      // Covers "ADMIN", "SUPER", "Y", "1", etc.
+      if (!normalized || normalized === "null" || normalized === "not-admin") return false
+      return true
     }
     return false
   }

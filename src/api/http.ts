@@ -205,12 +205,15 @@ const makeRequest = async <T = unknown>(
 	await refreshJwtIfNeeded();
 
 	const url = buildUrl(path, params);
-	const headers: Record<string, string> = { ...getAuthHeaders() };
+	const headers: Record<string, string> = {
+		"Accept": "application/json",
+		"Content-Type": "application/json",
+		...getAuthHeaders(),
+	};
 
 	const options: RequestInit = { method, headers, signal };
 
 	if (body !== null) {
-		headers["Content-Type"] = "application/json";
 		options.body = JSON.stringify(body);
 	}
 
