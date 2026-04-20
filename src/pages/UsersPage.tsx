@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, type ReactNode } from "react"
 import { IconUserPlus, IconUpload, IconLoader2 } from "@tabler/icons-react"
 import { toast } from "sonner"
 
@@ -145,10 +145,34 @@ export function UsersPage() {
     return undefined
   }
 
-  const formatDateValue = (value: unknown): string => {
-    if (value === null || value === undefined) return ""
+  const toTextValue = (value: unknown): string | undefined => {
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      return trimmed || undefined
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value)
+    }
+    return undefined
+  }
 
-    const raw = String(value).trim()
+  const pickTextValue = (...values: unknown[]): string => {
+    for (const value of values) {
+      const textValue = toTextValue(value)
+      if (textValue) return textValue
+    }
+    return ""
+  }
+
+  const buildFullName = (firstName: unknown, lastName: unknown): string => {
+    return [toTextValue(firstName), toTextValue(lastName)].filter(Boolean).join(" ").trim()
+  }
+
+  const compareAlphabetically = (left: string, right: string) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" })
+
+  const formatDateValue = (value: unknown): string => {
+    const raw = toTextValue(value)
     if (!raw) return ""
     if (raw === "0") return ""
 
@@ -174,22 +198,27 @@ export function UsersPage() {
     raw: Record<string, unknown>,
     idx: number,
     fallback?: "active" | "inactive",
-  ): User => ({
-    id: String(raw.melpid || raw.userid || raw.userId || raw.id || raw.extension || `${fallback || "user"}-${idx}`),
-    userId: String(raw.userid || raw.userId || raw.id || ""),
-    melpid: String(raw.melpid || ""),
-    name: String(raw.fullname || raw.name || raw.fullName || `${raw.firstname || ""} ${raw.lastname || ""}`.trim() || "Unknown"),
-    email: String(raw.email || raw.emailid || ""),
-    avatar: String(raw.imageUrl || raw.profileImage || raw.profile || raw.avatar || ""),
-    isAdmin: isAdminUser(raw),
-    department: String(raw.departmentName || raw.department || raw.dept || "General"),
-    designation: String(raw.professionName || raw.designation || raw.title || ""),
-    location: String(raw.location || raw.cityname || raw.city || ""),
-    status: toStatus(raw, fallback),
-    joinedAt: formatDateValue(raw.addedOn || raw.createdDate || raw.createdate || raw.joinedAt || ""),
-    deactivateDate: formatDateValue(raw.deactived_on || raw.deactivatedOn || ""),
-    verified: isVerifiedUser(raw),
-  })
+  ): User => {
+    const fallbackId = `${fallback || "user"}-${idx}`
+    const fullName = buildFullName(raw.firstname, raw.lastname)
+
+    return {
+      id: pickTextValue(raw.melpid, raw.userid, raw.userId, raw.id, raw.extension) || fallbackId,
+      userId: pickTextValue(raw.userid, raw.userId, raw.id),
+      melpid: pickTextValue(raw.melpid),
+      name: pickTextValue(raw.fullname, raw.name, raw.fullName, fullName) || "Unknown",
+      email: pickTextValue(raw.email, raw.emailid),
+      avatar: pickTextValue(raw.imageUrl, raw.profileImage, raw.profile, raw.avatar),
+      isAdmin: isAdminUser(raw),
+      department: pickTextValue(raw.departmentName, raw.department, raw.dept) || "General",
+      designation: pickTextValue(raw.professionName, raw.designation, raw.title),
+      location: pickTextValue(raw.location, raw.cityname, raw.city),
+      status: toStatus(raw, fallback),
+      joinedAt: formatDateValue(pickTextValue(raw.addedOn, raw.createdDate, raw.createdate, raw.joinedAt)),
+      deactivateDate: formatDateValue(pickTextValue(raw.deactived_on, raw.deactivatedOn)),
+      verified: isVerifiedUser(raw),
+    }
+  }
 
   // ── Load users from API ────────────────────────────────
   const loadUsers = useCallback(async () => {
@@ -353,9 +382,9 @@ export function UsersPage() {
   }
 
   const users = [...usersByCategory.all]
-  const departments = [...new Set(users.map((u) => u.department))].sort()
-  const designations = [...new Set(users.map((u) => u.designation).filter(Boolean))].sort()
-  const locations = [...new Set(users.map((u) => u.location).filter(Boolean))].sort()
+  const departments = [...new Set(users.map((u) => u.department))].sort(compareAlphabetically)
+  const designations = [...new Set(users.map((u) => u.designation).filter(Boolean))].sort(compareAlphabetically)
+  const locations = [...new Set(users.map((u) => u.location).filter(Boolean))].sort(compareAlphabetically)
 
   // ── Mutations ──────────────────────────────────────────
   async function handleAdd(rows: AddUserDraft[]): Promise<void> {
@@ -487,7 +516,7 @@ export function UsersPage() {
     anchor.download = `melp-users-${activeTab}-${stamp}.csv`
     document.body.appendChild(anchor)
     anchor.click()
-    document.body.removeChild(anchor)
+    anchor.remove()
     URL.revokeObjectURL(url)
   }
 
@@ -538,66 +567,16 @@ export function UsersPage() {
     onSelectionChange: setSelectedKeys,
   }
 
-  if (error) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
-        <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={loadUsers}>Retry</Button>
-      </div>
+  let mainContent: ReactNode = null
+  if (addOpen) {
+    mainContent = (
+      <AddUserInline
+        onSubmitAll={handleAdd}
+        onCancel={() => setAddOpen(false)}
+      />
     )
-  }
-
-  return (
-    <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-y-auto overflow-x-hidden">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage and monitor all users across your organization
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={bulkUploading}
-            onClick={() => { setBulkOpen(!bulkOpen); setAddOpen(false) }}
-            className={bulkOpen ? "bg-muted" : ""}
-          >
-            {bulkUploading ? <IconLoader2 className="size-4 mr-1.5 animate-spin" /> : <IconUpload className="size-4 mr-1.5" />}
-            Bulk Upload
-          </Button>
-          <Button
-            size="sm"
-            className="melp-radius"
-            onClick={() => { setAddOpen(!addOpen); setBulkOpen(false) }}
-            variant={addOpen ? "secondary" : "default"}
-          >
-            <IconUserPlus className="size-4 mr-1.5" />
-            Add User
-          </Button>
-        </div>
-      </div>
-
-      {/* Inline bulk-upload section */}
-      {bulkOpen && (
-        <BulkUploadInline
-          onFileSelected={(file) => void handleBulkFileSelected(file)}
-          onCancel={() => setBulkOpen(false)}
-          uploading={bulkUploading}
-        />
-      )}
-
-      {/* Inline add-user section — hides tabs/table when open */}
-      {addOpen ? (
-        <AddUserInline
-          onSubmitAll={handleAdd}
-          onCancel={() => setAddOpen(false)}
-        />
-      ) : bulkOpen ? null : (
-
-      /* Tabs */
+  } else if (!bulkOpen) {
+    mainContent = (
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList variant="line">
           <TabsTrigger value="all">
@@ -653,8 +632,63 @@ export function UsersPage() {
           <UsersDataTable users={getFilteredUsers("admin")} tab="admin" {...tableProps} />
         </TabsContent>
       </Tabs>
-      )}
+    )
+  }
 
+  if (error) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
+        <p className="text-sm text-destructive">{error}</p>
+        <Button variant="outline" size="sm" onClick={loadUsers}>Retry</Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6 overflow-y-auto overflow-x-hidden">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">User Management</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage and monitor all users across your organization
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkUploading}
+            onClick={() => { setBulkOpen(!bulkOpen); setAddOpen(false) }}
+            className={bulkOpen ? "bg-muted" : ""}
+          >
+            {bulkUploading ? <IconLoader2 className="size-4 mr-1.5 animate-spin" /> : <IconUpload className="size-4 mr-1.5" />}
+            Bulk Upload
+          </Button>
+          <Button
+            size="sm"
+            className="melp-radius"
+            onClick={() => { setAddOpen(!addOpen); setBulkOpen(false) }}
+            variant={addOpen ? "secondary" : "default"}
+          >
+            <IconUserPlus className="size-4 mr-1.5" />
+            Add User
+          </Button>
+        </div>
+      </div>
+
+      {/* Inline bulk-upload section */}
+      {bulkOpen && (
+        <BulkUploadInline
+          onFileSelected={(file) => void handleBulkFileSelected(file)}
+          onCancel={() => setBulkOpen(false)}
+          uploading={bulkUploading}
+        />
+      )}
+      {mainContent}
+      {/*
+
+      {/* Inline add-user section — hides tabs/table when open */}
       {/* Dialogs */}
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>

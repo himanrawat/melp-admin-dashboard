@@ -85,7 +85,7 @@ export function getInitials(name: string) {
     .join("")
 }
 
-export function EntityTypeBadge({ type }: { type: AccessEntityType }) {
+export function EntityTypeBadge({ type }: Readonly<{ type: AccessEntityType }>) {
   const styles: Record<AccessEntityType, string> = {
     User: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
     "User Group": "bg-amber-500/10 text-amber-700 dark:text-amber-300",
@@ -99,7 +99,7 @@ export function EntityTypeBadge({ type }: { type: AccessEntityType }) {
   )
 }
 
-export function RiskBadge({ risk }: { risk: AccessPolicy["risk"] }) {
+export function RiskBadge({ risk }: Readonly<{ risk: AccessPolicy["risk"] }>) {
   const styles: Record<AccessPolicy["risk"], string> = {
     Core: "bg-info/10 text-info",
     Sensitive: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
@@ -119,13 +119,13 @@ export function ManagementHero({
   description,
   meta,
   actionSlot,
-}: {
+}: Readonly<{
   eyebrow?: string
   title: string
   description: string
   meta?: ReactNode
   actionSlot?: ReactNode
-}) {
+}>) {
   return (
     <Card className="border-border/70">
       <CardContent className="flex flex-col gap-5 p-6">
@@ -152,12 +152,12 @@ export function StatCard({
   value,
   description,
   icon: Icon,
-}: {
+}: Readonly<{
   label: string
   value: string
   description: string
   icon: React.ComponentType<{ className?: string }>
-}) {
+}>) {
   return (
     <Card className="border-border/70">
       <CardContent className="flex items-start justify-between gap-4 p-5">
@@ -179,12 +179,12 @@ export function SectionCard({
   description,
   actionSlot,
   children,
-}: {
+}: Readonly<{
   title: string
   description?: string
   actionSlot?: ReactNode
   children: ReactNode
-}) {
+}>) {
   return (
     <Card className="border-border/70">
       <CardHeader className="flex flex-col gap-4 border-b border-border/70 pb-4 md:flex-row md:items-end md:justify-between">
@@ -204,12 +204,12 @@ export function SearchField({
   onChange,
   placeholder,
   className,
-}: {
+}: Readonly<{
   value: string
   onChange: (value: string) => void
   placeholder: string
   className?: string
-}) {
+}>) {
   return (
     <div className={cn("relative min-w-0 flex-1", className)}>
       <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -221,10 +221,10 @@ export function SearchField({
 export function PageSizePopover({
   value,
   onValueChange,
-}: {
+}: Readonly<{
   value: number
   onValueChange: (value: number) => void
-}) {
+}>) {
   const options = [10, 25, 50]
 
   return (
@@ -261,11 +261,11 @@ export function TableEmptyState({
   title,
   description,
   colSpan,
-}: {
+}: Readonly<{
   title: string
   description: string
   colSpan: number
-}) {
+}>) {
   return (
     <TableRow>
       <TableCell colSpan={colSpan} className="p-0">
@@ -289,11 +289,11 @@ export function TablePagination({
   countLabel,
   pageSize,
   onPageSizeChange,
-}: {
+}: Readonly<{
   countLabel: string
   pageSize: number
   onPageSizeChange: (value: number) => void
-}) {
+}>) {
   return (
     <div className="flex flex-col gap-3 border-t border-border/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">{countLabel}</p>
@@ -321,13 +321,13 @@ export function SubviewHeader({
   description,
   onBack,
   actionSlot,
-}: {
+}: Readonly<{
   label: string
   title: string
   description: string
   onBack: () => void
   actionSlot?: ReactNode
-}) {
+}>) {
   return (
     <Card className="border-border/70">
       <CardContent className="flex flex-col gap-5 p-6">
@@ -349,7 +349,7 @@ export function SubviewHeader({
   )
 }
 
-export function UserAvatarStack({ users }: { users: AccessUser[] }) {
+export function UserAvatarStack({ users }: Readonly<{ users: AccessUser[] }>) {
   const showAll = users.length <= 3
   const visible = showAll ? users : users.slice(0, 2)
   const remaining = users.length - visible.length
@@ -381,7 +381,7 @@ export function UserAvatarStack({ users }: { users: AccessUser[] }) {
   )
 }
 
-function ModuleFeatureBadge({ limit }: { limit: "Allow" | "Deny" | "Conditional" }) {
+function ModuleFeatureBadge({ limit }: Readonly<{ limit: "Allow" | "Deny" | "Conditional" }>) {
   const styles = {
     Allow: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     Deny: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
@@ -402,14 +402,14 @@ export function PolicyDetailView({
   onDelete,
   onAttachEntity,
   onDetachEntities,
-}: {
+}: Readonly<{
   policy: AccessPolicy
   onBack: () => void
   onEdit?: () => void
   onDelete?: () => void
   onAttachEntity?: (type: AccessEntityType) => void
   onDetachEntities?: (entityIds: string[]) => void
-}) {
+}>) {
   const [permissionSearch, setPermissionSearch] = useState("")
   const [entitySearch, setEntitySearch] = useState("")
   const [selectedEntities, setSelectedEntities] = useState<string[]>([])
@@ -677,7 +677,7 @@ export function PolicyDetailView({
   )
 }
 
-export function SelectionCount({ count, noun }: { count: number; noun: string }) {
+export function SelectionCount({ count, noun }: Readonly<{ count: number; noun: string }>) {
   return (
     <Badge variant="secondary" className="border-0">
       {count} {noun}
@@ -688,10 +688,10 @@ export function SelectionCount({ count, noun }: { count: number; noun: string })
 export function PreviewStateSelect({
   value,
   onValueChange,
-}: {
+}: Readonly<{
   value: AccessPreviewState
   onValueChange: (value: AccessPreviewState) => void
-}) {
+}>) {
   return (
     <Select value={value} onValueChange={(next) => onValueChange(next as AccessPreviewState)}>
       <SelectTrigger className="w-[180px]">

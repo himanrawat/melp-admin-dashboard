@@ -1,4 +1,5 @@
 import { IconWorld, IconUsers, IconChevronRight } from "@tabler/icons-react"
+import { Link } from "react-router-dom"
 import {
   Card,
   CardContent,
@@ -20,9 +21,9 @@ export function DomainOverview() {
       <CardHeader>
         <CardTitle>Top Domains</CardTitle>
         <CardAction>
-          <a href="#" className="text-xs flex items-center gap-0.5">
+          <Link to="/domains" className="flex items-center gap-0.5 text-xs">
             Add Domain <IconChevronRight className="size-3" />
-          </a>
+          </Link>
         </CardAction>
       </CardHeader>
       <CardContent>

@@ -183,6 +183,13 @@ function DataTableHeader<T>({
   onToggleAll?: () => void;
   stickyHeader?: boolean;
 }>) {
+  let selectAllState: boolean | "indeterminate" = false;
+  if (allSelected) {
+    selectAllState = true;
+  } else if (someSelected) {
+    selectAllState = "indeterminate";
+  }
+
   return (
     <TableHeader className={stickyHeader ? "sticky top-0 z-20" : undefined}>
       <TableRow className="border-b border-border bg-muted hover:bg-muted">
@@ -192,7 +199,7 @@ function DataTableHeader<T>({
             style={checkboxStickyStyle(columns)}
           >
             <Checkbox
-              checked={allSelected ? true : someSelected ? "indeterminate" : false}
+              checked={selectAllState}
               onCheckedChange={() => onToggleAll?.()}
               aria-label="Select all"
             />
@@ -410,7 +417,7 @@ function DataTablePagination({
           value={String(pageSize)}
           onValueChange={(v) => onPageSizeChange(Number(v))}
         >
-          <SelectTrigger className="h-8 w-[70px]">
+          <SelectTrigger className="h-8 w-17.5">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

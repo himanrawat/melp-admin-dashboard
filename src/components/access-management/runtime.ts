@@ -18,6 +18,12 @@ type ListPayload = {
   pageSize: number
 }
 
+const accessDateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "2-digit",
+  year: "numeric",
+})
+
 function asRecord(value: unknown): RecordLike | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   return value as RecordLike
@@ -102,37 +108,45 @@ function normalizeUserStatus(value: unknown): string {
   return toTitleCase(raw)
 }
 
+function toValidDate(value: number | string): Date | null {
+  const candidate = new Date(value)
+  return Number.isNaN(candidate.getTime()) ? null : candidate
+}
+
+function toUnixTimestampDate(value: number, isMilliseconds: boolean): Date | null {
+  const normalized = isMilliseconds ? value : value * 1000
+  return toValidDate(normalized)
+}
+
+function parseAccessDate(value: unknown): Date | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return toUnixTimestampDate(value, value > 1_000_000_000_000)
+  }
+
+  if (typeof value !== "string") {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    return toUnixTimestampDate(Number(trimmed), trimmed.length > 10)
+  }
+
+  return toValidDate(trimmed)
+}
+
 export function formatAccessDate(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-"
 
-  let date: Date | null = null
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const normalized = value > 1_000_000_000_000 ? value : value * 1000
-    const candidate = new Date(normalized)
-    if (!Number.isNaN(candidate.getTime())) date = candidate
-  }
-
-  if (!date && typeof value === "string") {
-    const trimmed = value.trim()
-    if (/^\d+$/.test(trimmed)) {
-      const numeric = Number(trimmed)
-      const normalized = trimmed.length > 10 ? numeric : numeric * 1000
-      const candidate = new Date(normalized)
-      if (!Number.isNaN(candidate.getTime())) date = candidate
-    } else {
-      const candidate = new Date(trimmed)
-      if (!Number.isNaN(candidate.getTime())) date = candidate
-    }
-  }
+  const date = parseAccessDate(value)
 
   if (!date) return asString(value, "-")
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(date)
+  return accessDateFormatter.format(date)
 }
 
 export function normalizeListPayload(raw: unknown): ListPayload {
@@ -232,11 +246,12 @@ export function mapAccessFeature(raw: unknown): AccessFeature {
 export function mapAccessModule(raw: unknown): AccessModule {
   const record = asRecord(raw) ?? {}
   const name = asString(record.name || record.module, "Unnamed module")
-  const rawFeatures = Array.isArray(record.features)
-    ? record.features
-    : Array.isArray(record.permissions)
-      ? record.permissions
-      : []
+  let rawFeatures: unknown[] = []
+  if (Array.isArray(record.features)) {
+    rawFeatures = record.features
+  } else if (Array.isArray(record.permissions)) {
+    rawFeatures = record.permissions
+  }
   const features = rawFeatures.map((feature) => mapAccessFeature(feature))
 
   return {

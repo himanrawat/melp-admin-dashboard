@@ -48,7 +48,7 @@ export function UserStatusBreakdown() {
       <CardContent className="flex flex-col items-center flex-1 justify-center pb-2">
         <ChartContainer
           config={chartConfig}
-          className="mx-auto aspect-square w-full max-w-[200px]"
+          className="mx-auto aspect-square w-full max-w-50"
         >
           <RadialBarChart
             data={chartData}

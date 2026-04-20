@@ -25,7 +25,24 @@ import { PaymentsPage } from "@/pages/PaymentsPage"
 import { SettingsPage } from "@/pages/SettingsPage"
 import { ComponentsPage } from "@/pages/ComponentsPage"
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
+function getTextValue(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value) return value
+    if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  }
+
+  return ""
+}
+
+function getDomainId(domain: Domain): string {
+  return getTextValue(domain.client_id, domain.clientid, domain.domain)
+}
+
+function getDomainName(domain: Domain): string {
+  return getTextValue(domain.client_name, domain.domain, getDomainId(domain))
+}
+
+function PrivateRoute({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isAuthenticated } = useAuth()
   const location = useLocation()
 
@@ -48,12 +65,18 @@ function AppLayout() {
     fetchDomains()
       .then((resp: unknown) => {
         const r = resp as Record<string, unknown>
-        const list: Domain[] = Array.isArray(resp) ? resp : (r?.data as Domain[]) || (r?.domains as Domain[]) || []
+        const list: Domain[] = Array.isArray(resp)
+          ? resp
+          : Array.isArray(r.data)
+            ? (r.data as Domain[])
+            : Array.isArray(r.domains)
+              ? (r.domains as Domain[])
+              : []
         setDomains(list)
         if (!curClient) {
           if (list.length > 0) {
             const first = list[0]
-            setSelectedClient(String(first.client_id || first.clientid || first.domain || ''), String(first.client_name || first.domain || ''))
+            setSelectedClient(getDomainId(first), getDomainName(first))
           }
           setShowDomainModal(true)
         }
@@ -64,9 +87,41 @@ function AppLayout() {
   }, [authState, domains.length, setSelectedClient, setDomains])
 
   const handleDomainSelect = (id: string) => {
-    const domain = domains.find((d) => String(d.client_id || d.clientid || d.domain) === id)
-    setSelectedClient(id, String(domain?.client_name || domain?.domain || ''))
+    const domain = domains.find((item) => getDomainId(item) === id)
+    setSelectedClient(id, domain ? getDomainName(domain) : "")
     setShowDomainModal(false)
+  }
+
+  let domainModalContent: React.ReactNode
+  if (domainLoading) {
+    domainModalContent = <p className="text-sm text-muted-foreground">Loading domains...</p>
+  } else if (domains.length === 0) {
+    domainModalContent = (
+      <p className="text-sm text-muted-foreground">No domains available for your account.</p>
+    )
+  } else {
+    domainModalContent = (
+      <div className="space-y-3">
+        <Select
+          value={domains.some((domain) => getDomainId(domain) === selectedClient) ? selectedClient : undefined}
+          onValueChange={handleDomainSelect}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a domain" />
+          </SelectTrigger>
+          <SelectContent>
+            {domains.map((domain) => {
+              const id = getDomainId(domain)
+              const name = getDomainName(domain)
+              return (
+                <SelectItem key={id} value={id}>{name}</SelectItem>
+              )
+            })}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">You can change the domain later from the header.</p>
+      </div>
+    )
   }
 
   return (
@@ -114,6 +169,8 @@ function AppLayout() {
             <DialogTitle>Select Domain</DialogTitle>
             <DialogDescription>Choose a domain to manage.</DialogDescription>
           </DialogHeader>
+          {domainModalContent}
+          {/*
           {domainLoading ? (
             <p className="text-sm text-muted-foreground">Loading domains…</p>
           ) : domains.length === 0 ? (
@@ -139,7 +196,7 @@ function AppLayout() {
               </Select>
               <p className="text-xs text-muted-foreground">You can change the domain later from the header.</p>
             </div>
-          )}
+          )} */}
         </DialogContent>
       </Dialog>
     </SidebarProvider>

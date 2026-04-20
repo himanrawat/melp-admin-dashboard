@@ -1,4 +1,4 @@
-export function LogoShort({ className = "" }: { className?: string }) {
+export function LogoShort({ className = "" }: Readonly<{ className?: string }>) {
   return (
     <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className={className || "w-full"}>
       <path d="M0 0H38.7299C43.8496 0 48 4.15036 48 9.27008V38.7299C48 43.8496 43.8496 48 38.7299 48H9.27008C4.15036 48 0 43.8496 0 38.7299V0Z" fill="#EE4136"></path>

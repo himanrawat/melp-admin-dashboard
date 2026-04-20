@@ -44,6 +44,8 @@ type DashboardStats = {
   }
 }
 
+type DomainStatus = "verified" | "failed" | "pending"
+
 const EMPTY_STATS: DashboardStats = {
   users: {
     total: 0,
@@ -111,46 +113,50 @@ async function countPagedResults(
   }
 }
 
+function getDomainStatus(record: Record<string, unknown>): DomainStatus {
+  if (
+    record.verified === true ||
+    record.isverified === true ||
+    record.status === "verified"
+  ) {
+    return "verified"
+  }
+
+  if (record.status === "failed") {
+    return "failed"
+  }
+
+  return "pending"
+}
+
 function normalizeDomain(record: Record<string, unknown>) {
   return {
-    status:
-      record.verified === true ||
-      record.isverified === true ||
-      record.status === "verified"
-        ? "verified"
-        : record.status === "failed"
-          ? "failed"
-          : "pending",
+    status: getDomainStatus(record),
     users: Number(record.activeUsers || record.usercount || record.users || 0),
   }
 }
 
-function formatMetric(value: number, loading: boolean): string {
-  return loading ? "..." : value.toLocaleString()
+function formatMetric(value: number): string {
+  return value.toLocaleString()
 }
 
-function renderCardAction(
-  loading: boolean,
-  error: boolean,
-  onRetry: () => void,
-  content: string,
-) {
-  if (loading) {
-    return <IconLoader2 className="size-3.5 animate-spin text-muted-foreground" />
-  }
+function LoadingCardAction() {
+  return <IconLoader2 className="size-3.5 animate-spin text-muted-foreground" />
+}
 
-  if (error) {
-    return (
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-xs font-medium text-destructive hover:underline"
-      >
-        Retry
-      </button>
-    )
-  }
+function RetryCardAction({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      className="text-xs font-medium text-destructive hover:underline"
+    >
+      Retry
+    </button>
+  )
+}
 
+function LabelCardAction({ content }: Readonly<{ content: string }>) {
   return <div className="text-xs font-medium text-muted-foreground">{content}</div>
 }
 
@@ -235,6 +241,18 @@ export function StatCards() {
     stats.teamGroups.archived > 0 ? `${stats.teamGroups.archived.toLocaleString()} archived` : "All active"
   const verifiedDomainsLabel =
     stats.domains.total > 0 ? `${stats.domains.verified.toLocaleString()} verified` : "No domains"
+  const getMetricText = (value: number) => (loading ? "..." : formatMetric(value))
+  const renderCardAction = (content: string) => {
+    if (loading) {
+      return <LoadingCardAction />
+    }
+
+    if (error) {
+      return <RetryCardAction onRetry={loadStats} />
+    }
+
+    return <LabelCardAction content={content} />
+  }
 
   return (
     <>
@@ -245,23 +263,23 @@ export function StatCards() {
             <IconUsers className="size-4 text-muted-foreground" />
           </div>
           <CardAction>
-            {renderCardAction(loading, Boolean(error), loadStats, usersActiveRate)}
+            {renderCardAction(usersActiveRate)}
           </CardAction>
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3 flex-1">
-          <CardTitle className="text-2xl font-bold">{formatMetric(stats.users.total, loading)}</CardTitle>
+          <CardTitle className="text-2xl font-bold">{getMetricText(stats.users.total)}</CardTitle>
           <p className="text-xs text-muted-foreground -mt-2">Total Users</p>
 
           <Separator />
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.users.active, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.users.active)}</p>
               <p className="text-xs text-muted-foreground">Active</p>
             </div>
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.users.inactive, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.users.inactive)}</p>
               <p className="text-xs text-muted-foreground">Inactive</p>
             </div>
           </div>
@@ -283,13 +301,13 @@ export function StatCards() {
             </div>
           </div>
           <CardAction>
-            {renderCardAction(loading, Boolean(error), loadStats, archivedGroupsLabel)}
+            {renderCardAction(archivedGroupsLabel)}
           </CardAction>
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3 flex-1">
           <CardTitle className="text-2xl font-bold">
-            {formatMetric(stats.teamGroups.teams + stats.teamGroups.groups, loading)}
+            {getMetricText(stats.teamGroups.teams + stats.teamGroups.groups)}
           </CardTitle>
           <p className="text-xs text-muted-foreground -mt-2">Teams & Groups</p>
 
@@ -297,11 +315,11 @@ export function StatCards() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.teamGroups.teams, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.teamGroups.teams)}</p>
               <p className="text-xs text-muted-foreground">Teams</p>
             </div>
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.teamGroups.groups, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.teamGroups.groups)}</p>
               <p className="text-xs text-muted-foreground">Groups</p>
             </div>
           </div>
@@ -324,23 +342,23 @@ export function StatCards() {
             <IconWorld className="size-4 text-muted-foreground" />
           </div>
           <CardAction>
-            {renderCardAction(loading, Boolean(error), loadStats, verifiedDomainsLabel)}
+            {renderCardAction(verifiedDomainsLabel)}
           </CardAction>
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3 flex-1">
-          <CardTitle className="text-2xl font-bold">{formatMetric(stats.domains.total, loading)}</CardTitle>
+          <CardTitle className="text-2xl font-bold">{getMetricText(stats.domains.total)}</CardTitle>
           <p className="text-xs text-muted-foreground -mt-2">Domains</p>
 
           <Separator />
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.domains.totalUsers, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.domains.totalUsers)}</p>
               <p className="text-xs text-muted-foreground">Total Users</p>
             </div>
             <div>
-              <p className="text-sm font-semibold">{formatMetric(stats.domains.avgPerDomain, loading)}</p>
+              <p className="text-sm font-semibold">{getMetricText(stats.domains.avgPerDomain)}</p>
               <p className="text-xs text-muted-foreground">Avg / Domain</p>
             </div>
           </div>

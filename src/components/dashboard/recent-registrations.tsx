@@ -8,6 +8,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { IconChevronRight } from "@tabler/icons-react"
+import { Link } from "react-router-dom"
 
 const registrations = [
   {
@@ -56,9 +57,9 @@ export function RecentRegistrations() {
       <CardHeader>
         <CardTitle>Recent Registrations</CardTitle>
         <CardAction>
-          <a href="#" className="text-xs flex items-center gap-0.5">
+          <Link to="/users" className="flex items-center gap-0.5 text-xs">
             View all <IconChevronRight className="size-3" />
-          </a>
+          </Link>
         </CardAction>
       </CardHeader>
       <CardContent>
