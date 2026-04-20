@@ -133,6 +133,12 @@ export function UsersDataTable({
   users,
   visibleCols,
   loading,
+  page,
+  pageCount,
+  pageSize,
+  totalRows,
+  onPageChange,
+  onPageSizeChange,
   onToggleStatus,
   onToggleAdmin,
   onEdited,
@@ -144,6 +150,12 @@ export function UsersDataTable({
   visibleCols: Set<ColKey>
   tab?: string
   loading?: boolean
+  page?: number
+  pageCount?: number
+  pageSize?: number
+  totalRows?: number
+  onPageChange?: (page: number) => void
+  onPageSizeChange?: (size: number) => void
   onAdd?: () => void
   onInvite?: () => void
   onToggleStatus: (id: string, status: "active" | "inactive") => void
@@ -187,7 +199,7 @@ export function UsersDataTable({
           </div>
         </div>
       ),
-      minWidth: "180px",
+      minWidth: "220px",
     },
     email: {
       id: "email",
@@ -253,6 +265,12 @@ export function UsersDataTable({
       loadingRows={8}
       emptyState={<span>No users found.</span>}
       paginated
+      page={page}
+      pageCount={pageCount}
+      pageSize={pageSize}
+      totalRows={totalRows}
+      onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
       selectable={selectable}
       selectedKeys={selectedKeys}
       onSelectionChange={onSelectionChange}

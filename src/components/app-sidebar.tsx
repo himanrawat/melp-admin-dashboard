@@ -40,6 +40,7 @@ type NavItem = {
   title: string
   url: string
   icon: React.ElementType
+  disabled?: boolean
   children?: { title: string; url: string }[]
 }
 
@@ -83,11 +84,13 @@ const navItems: NavItem[] = [
     title: "Payments",
     url: "/payments",
     icon: IconCreditCard,
+    disabled: true,
   },
   {
     title: "Settings",
     url: "/settings",
     icon: IconSettings,
+    disabled: true,
   },
 ]
 
@@ -172,15 +175,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               ) : (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    asChild
+                    asChild={!item.disabled}
                     tooltip={item.title}
                     isActive={isItemActive(item)}
                     size="md"
+                    disabled={item.disabled}
+                    className={item.disabled ? "opacity-40 cursor-not-allowed pointer-events-none" : undefined}
                   >
-                    <Link to={item.url}>
-                      <item.icon className="size-5" />
-                      <span>{item.title}</span>
-                    </Link>
+                    {item.disabled ? (
+                      <>
+                        <item.icon className="size-5" />
+                        <span>{item.title}</span>
+                      </>
+                    ) : (
+                      <Link to={item.url}>
+                        <item.icon className="size-5" />
+                        <span>{item.title}</span>
+                      </Link>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )

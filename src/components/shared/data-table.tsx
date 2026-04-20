@@ -74,8 +74,18 @@ export type DataTableProps<T> = {
   paginated?: boolean;
   /** Number of rows per page. Only used when `paginated` is `true`. @default 10 */
   pageSize?: number;
-  /** Available page-size options shown in the selector. @default [10, 20, 30, 50] */
+  /** Available page-size options shown in the selector. @default [10, 20, 30, 40, 50] */
   pageSizeOptions?: number[];
+  /** Zero-based current page for externally controlled pagination. */
+  page?: number;
+  /** Total page count for externally controlled pagination. */
+  pageCount?: number;
+  /** Total rows across all pages for externally controlled pagination. */
+  totalRows?: number;
+  /** Called when the page changes. Enables externally controlled pagination. */
+  onPageChange?: (page: number) => void;
+  /** Called when rows per page changes. Enables externally controlled page size. */
+  onPageSizeChange?: (size: number) => void;
   /** Show checkboxes for row selection. */
   selectable?: boolean;
   /** Currently selected row keys. */
@@ -101,7 +111,6 @@ const ALIGN_CLASS = {
 const CELL_PADDING_DEFAULT = "px-4 py-3";
 const CELL_PADDING_COMPACT = "px-3 py-1.5";
 const SKELETON_ROWS_DEFAULT = 5;
-const CHECKBOX_COL_WIDTH = 40; // matches w-10
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -117,13 +126,14 @@ function columnMinWidth<T>(col: ColumnDef<T>): CSSProperties | undefined {
   return { minWidth: col.minWidth };
 }
 
-/** Shared sticky base styles with an opaque background so content doesn't bleed through. */
+/** Shared sticky positioning. Background must be provided by the caller's className
+    so header/body use the correct opaque color (bg-muted vs bg-card). */
 function stickyBase(left: number, isLastSticky: boolean): CSSProperties {
   return {
     position: "sticky",
     left,
     zIndex: 10,
-    ...(isLastSticky ? { boxShadow: "4px 0 6px -2px rgba(0,0,0,0.1)" } : {}),
+    ...(isLastSticky ? { boxShadow: "4px 0 6px -2px rgba(0,0,0,0.08)" } : {}),
   };
 }
 
@@ -141,10 +151,9 @@ function stickyStyle<T>(
   col: ColumnDef<T>,
   index: number,
   columns: ColumnDef<T>[],
-  selectable?: boolean,
 ): CSSProperties | undefined {
   if (!col.sticky) return undefined;
-  let left = selectable ? CHECKBOX_COL_WIDTH : 0;
+  let left = 0;
   for (let i = 0; i < index; i++) {
     if (columns[i].sticky) {
       left += Number.parseInt(columns[i].minWidth || "0", 10);
@@ -154,12 +163,9 @@ function stickyStyle<T>(
   return stickyBase(left, isLastSticky);
 }
 
-/** Returns sticky styles for the checkbox column when any column is sticky. */
-function checkboxStickyStyle<T>(columns: ColumnDef<T>[]): CSSProperties | undefined {
-  const hasSticky = columns.some((c) => c.sticky);
-  if (!hasSticky) return undefined;
-  const hasMoreSticky = columns.some((c) => c.sticky);
-  return stickyBase(0, !hasMoreSticky);
+/** Index of the first sticky column (the one that will host the checkbox), or -1. */
+function firstStickyIndex<T>(columns: ColumnDef<T>[]): number {
+  return columns.findIndex((c) => c.sticky);
 }
 
 // ---------------------------------------------------------------------------
@@ -190,21 +196,11 @@ function DataTableHeader<T>({
     selectAllState = "indeterminate";
   }
 
+  const checkboxHostIdx = selectable ? Math.max(0, firstStickyIndex(columns)) : -1;
+
   return (
     <TableHeader className={stickyHeader ? "sticky top-0 z-20" : undefined}>
       <TableRow className="border-b border-border bg-muted hover:bg-muted">
-        {selectable && (
-          <TableHead
-            className={cn("w-10", cellPadding)}
-            style={checkboxStickyStyle(columns)}
-          >
-            <Checkbox
-              checked={selectAllState}
-              onCheckedChange={() => onToggleAll?.()}
-              aria-label="Select all"
-            />
-          </TableHead>
-        )}
         {columns.map((col, colIdx) => (
           <TableHead
             key={col.id}
@@ -214,9 +210,20 @@ function DataTableHeader<T>({
               col.align && ALIGN_CLASS[col.align],
               col.sticky && "bg-muted",
             )}
-            style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
+            style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns) }}
           >
-            {col.header}
+            {colIdx === checkboxHostIdx ? (
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  checked={selectAllState}
+                  onCheckedChange={() => onToggleAll?.()}
+                  aria-label="Select all"
+                />
+                <span>{col.header}</span>
+              </div>
+            ) : (
+              col.header
+            )}
           </TableHead>
         ))}
       </TableRow>
@@ -235,25 +242,26 @@ function DataTableLoadingBody<T>({
   cellPadding: string;
   selectable?: boolean;
 }>) {
+  const checkboxHostIdx = selectable ? Math.max(0, firstStickyIndex(columns)) : -1;
+
   return (
     <TableBody>
       {Array.from({ length: rows }, (_, i) => (
         <TableRow key={i} className="border-b border-border hover:bg-transparent">
-          {selectable && (
-            <TableCell
-              className={cn("w-10 bg-card", cellPadding)}
-              style={checkboxStickyStyle(columns)}
-            >
-              <Skeleton className="size-4" />
-            </TableCell>
-          )}
           {columns.map((col, colIdx) => (
             <TableCell
               key={col.id}
               className={cn("bg-card", cellPadding)}
-              style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
+              style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns) }}
             >
-              <Skeleton className="h-4 w-3/4" />
+              {colIdx === checkboxHostIdx ? (
+                <div className="flex items-center gap-3">
+                  <Skeleton className="size-4" />
+                  <Skeleton className="h-4 w-3/4" />
+                </div>
+              ) : (
+                <Skeleton className="h-4 w-3/4" />
+              )}
             </TableCell>
           ))}
         </TableRow>
@@ -326,6 +334,8 @@ function DataTableDataBody<T>({
     [onRowClick],
   );
 
+  const checkboxHostIdx = selectable ? Math.max(0, firstStickyIndex(columns)) : -1;
+
   return (
     <TableBody>
       {data.map((row, idx) => {
@@ -349,19 +359,6 @@ function DataTableDataBody<T>({
               extraRowClass,
             )}
           >
-            {selectable && (
-              <TableCell
-                className={cn("w-10 bg-card group-hover:bg-muted transition-colors", cellPadding)}
-                style={checkboxStickyStyle(columns)}
-              >
-                <Checkbox
-                  checked={selectedKeys?.has(key) ?? false}
-                  onClick={(e) => e.stopPropagation()}
-                  onCheckedChange={() => onToggleRow?.(key)}
-                  aria-label={`Select row ${key}`}
-                />
-              </TableCell>
-            )}
             {columns.map((col, colIdx) => (
               <TableCell
                 key={col.id}
@@ -371,9 +368,21 @@ function DataTableDataBody<T>({
                   col.align && ALIGN_CLASS[col.align],
                   col.cellClassName,
                 )}
-                style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns, selectable) }}
+                style={{ ...columnMinWidth(col), ...stickyStyle(col, colIdx, columns) }}
               >
-                {resolveCell(row, col.accessor)}
+                {colIdx === checkboxHostIdx ? (
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={selectedKeys?.has(key) ?? false}
+                      onClick={(e) => e.stopPropagation()}
+                      onCheckedChange={() => onToggleRow?.(key)}
+                      aria-label={`Select row ${key}`}
+                    />
+                    <div className="min-w-0 flex-1">{resolveCell(row, col.accessor)}</div>
+                  </div>
+                ) : (
+                  resolveCell(row, col.accessor)
+                )}
               </TableCell>
             ))}
           </TableRow>
@@ -387,7 +396,7 @@ function DataTableDataBody<T>({
 // Pagination controls
 // ---------------------------------------------------------------------------
 
-const PAGE_SIZE_OPTIONS_DEFAULT = [10, 20, 30, 50];
+const PAGE_SIZE_OPTIONS_DEFAULT = [10, 20, 30, 40, 50];
 
 function DataTablePagination({
   page,
@@ -536,8 +545,13 @@ export function DataTable<T>({
   caption,
   className,
   paginated = false,
-  pageSize: initialPageSize = 10,
+  pageSize: pageSizeProp = 10,
   pageSizeOptions = PAGE_SIZE_OPTIONS_DEFAULT,
+  page: controlledPage,
+  pageCount: controlledPageCount,
+  totalRows: controlledTotalRows,
+  onPageChange,
+  onPageSizeChange,
   selectable = false,
   selectedKeys,
   onSelectionChange,
@@ -547,25 +561,52 @@ export function DataTable<T>({
   const cellPadding = compact ? CELL_PADDING_COMPACT : CELL_PADDING_DEFAULT;
 
   const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(initialPageSize);
-
-  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+  const [localPageSize, setLocalPageSize] = useState(pageSizeProp);
+  const isControlledPagination =
+    paginated &&
+    (
+      controlledPage !== undefined ||
+      controlledPageCount !== undefined ||
+      controlledTotalRows !== undefined ||
+      onPageChange !== undefined ||
+      onPageSizeChange !== undefined
+    );
+  const pageSize = isControlledPagination ? pageSizeProp : localPageSize;
+  const totalRows = isControlledPagination ? Math.max(0, controlledTotalRows ?? data.length) : data.length;
+  const pageCount = isControlledPagination
+    ? Math.max(1, controlledPageCount ?? (totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1))
+    : Math.max(1, Math.ceil(data.length / pageSize));
 
   // Reset to first page when data length changes or page size changes
-  const safeCurrentPage = currentPage >= pageCount ? 0 : currentPage;
+  const safeCurrentPage = isControlledPagination
+    ? Math.min(Math.max(controlledPage ?? 0, 0), Math.max(pageCount - 1, 0))
+    : currentPage >= pageCount ? 0 : currentPage;
 
   const visibleData = useMemo(() => {
-    if (!paginated || loading) return data;
+    if (!paginated || loading || isControlledPagination) return data;
     const start = safeCurrentPage * pageSize;
     return data.slice(start, start + pageSize);
-  }, [paginated, loading, data, safeCurrentPage, pageSize]);
+  }, [paginated, loading, data, safeCurrentPage, pageSize, isControlledPagination]);
 
   const isEmpty = !loading && data.length === 0;
 
   const handlePageSizeChange = (size: number) => {
-    setPageSize(size);
+    if (isControlledPagination) {
+      onPageSizeChange?.(size);
+      onPageChange?.(0);
+      return;
+    }
+    setLocalPageSize(size);
     setCurrentPage(0);
   };
+
+  const handlePageChange = useCallback((nextPage: number) => {
+    if (isControlledPagination) {
+      onPageChange?.(nextPage);
+      return;
+    }
+    setCurrentPage(nextPage);
+  }, [isControlledPagination, onPageChange]);
 
   // Selection helpers
   const allKeys = useMemo(() => {
@@ -592,7 +633,7 @@ export function DataTable<T>({
     onSelectionChange(next);
   }, [selectedKeys, onSelectionChange]);
 
-  const colSpan = columns.length + (selectable ? 1 : 0);
+  const colSpan = columns.length;
 
   let body: ReactNode;
   if (loading) {
@@ -656,8 +697,8 @@ export function DataTable<T>({
           pageCount={pageCount}
           pageSize={pageSize}
           pageSizeOptions={pageSizeOptions}
-          totalRows={data.length}
-          onPageChange={setCurrentPage}
+          totalRows={totalRows}
+          onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
         />
       )}

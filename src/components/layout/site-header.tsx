@@ -1,13 +1,11 @@
-import { Search, Bell, Sun, Moon } from "lucide-react"
+import { Search } from "lucide-react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { useTheme } from "@/hooks/use-theme"
 import { useAuth } from "@/context/auth-context"
 
 export function SiteHeader({ onSelectDomain }: { onSelectDomain?: () => void }) {
-  const { theme, toggleTheme } = useTheme()
   const { authState, selectedClientName } = useAuth()
 
   const firstName = authState?.user?.fullName?.split(" ")[0] || "Admin"
@@ -58,26 +56,6 @@ export function SiteHeader({ onSelectDomain }: { onSelectDomain?: () => void }) 
           </kbd>
         </div>
 
-        {/* Dark / Light mode toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9 rounded"
-          onClick={toggleTheme}
-          aria-label="Toggle theme"
-        >
-          {theme === "dark" ? (
-            <Sun className="size-4" />
-          ) : (
-            <Moon className="size-4" />
-          )}
-        </Button>
-
-        {/* Notification */}
-        <Button variant="ghost" size="icon" className="size-9 rounded relative">
-          <Bell className="size-4" />
-          <span className="absolute top-1 right-1 size-2 bg-primary rounded" />
-        </Button>
       </div>
     </header>
   )
