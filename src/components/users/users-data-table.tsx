@@ -199,7 +199,7 @@ export function UsersDataTable({
           </div>
         </div>
       ),
-      minWidth: "180px",
+      minWidth: "220px",
     },
     email: {
       id: "email",

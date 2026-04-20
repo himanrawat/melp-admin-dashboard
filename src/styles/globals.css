@@ -219,6 +219,13 @@
   [data-sidebar] a {
     color: inherit;
   }
+
+  /* Reset link color inside buttons — use button's own foreground */
+  a[data-slot="button"],
+  [data-slot="button"] a,
+  button a {
+    color: inherit;
+  }
 }
 
 /* ============================================
@@ -237,15 +244,30 @@
     box-shadow: 4px 0 6px -2px rgba(0, 0, 0, 0.1);
   }
 
-  /* Inactive / archived row styling */
+  /* Inactive / archived row styling — solid tint so sticky cells stay opaque. */
   tr.row-inactive > td {
-    background-color: color-mix(in srgb, var(--muted) 50%, transparent) !important;
+    background-color: color-mix(in srgb, var(--muted) 60%, var(--card)) !important;
     color: var(--muted-foreground);
-    opacity: 0.75;
   }
   tr.row-inactive:hover > td {
     background-color: var(--muted) !important;
-    opacity: 0.85;
+  }
+
+  /* Slim scrollbar */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
   }
 
 }

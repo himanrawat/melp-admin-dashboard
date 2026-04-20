@@ -18,6 +18,8 @@ import { TeamsPage } from "@/pages/TeamsPage"
 import { GroupsPage } from "@/pages/GroupsPage"
 import { AccessGroupsPage } from "@/pages/AccessGroupsPage"
 import { AccessPoliciesPage } from "@/pages/AccessPoliciesPage"
+import { PolicyDetailPage } from "@/pages/PolicyDetailPage"
+import { PolicyEditPage } from "@/pages/PolicyEditPage"
 import { AccessDomainsPage } from "@/pages/AccessDomainsPage"
 import { AuditLogsPage } from "@/pages/AuditLogsPage"
 import { DomainsPage } from "@/pages/DomainsPage"
@@ -142,6 +144,9 @@ function AppLayout() {
           <Route path="/access" element={<Navigate to="/access/groups" replace />} />
           <Route path="/access/groups" element={<AccessGroupsPage />} />
           <Route path="/access/policies" element={<AccessPoliciesPage />} />
+          <Route path="/access/policies/new" element={<PolicyEditPage />} />
+          <Route path="/access/policies/:id" element={<PolicyDetailPage />} />
+          <Route path="/access/policies/:id/edit" element={<PolicyEditPage />} />
           <Route path="/access/domains" element={<AccessDomainsPage />} />
 
           {/* Audit Logs */}

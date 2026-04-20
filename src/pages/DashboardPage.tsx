@@ -1,9 +1,6 @@
 import { StatCards } from "@/components/dashboard/stat-cards"
-import { UserGrowthChart } from "@/components/dashboard/user-growth-chart"
-import { UserStatusBreakdown } from "@/components/dashboard/user-status-breakdown"
 import { RecentRegistrations } from "@/components/dashboard/recent-registrations"
 import { AuditLogsSection } from "@/components/dashboard/audit-logs-section"
-import { DomainOverview } from "@/components/dashboard/domain-overview"
 import { AccessSummary } from "@/components/dashboard/access-summary"
 import { PaymentsOverview } from "@/components/dashboard/payments-overview"
 
@@ -22,28 +19,17 @@ export function DashboardPage() {
             <StatCards />
           </div>
 
-          {/* Charts row: stacked mobile, side-by-side tablet+ */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-5 lg:grid-cols-3">
-            <div className="md:col-span-3 lg:col-span-2">
-              <UserGrowthChart />
-            </div>
-            <div className="md:col-span-2 lg:col-span-1">
-              <UserStatusBreakdown />
-            </div>
+          {/* Recent Registrations & Access Management */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <RecentRegistrations />
+            <AccessSummary />
           </div>
         </div>
 
-        {/* Right column — Payments Overview */}
+        {/* Right column — Subscription */}
         <div className="xl:sticky xl:top-4 xl:self-start h-full">
           <PaymentsOverview />
         </div>
-      </div>
-
-      {/* Bottom row: 3-col cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <RecentRegistrations />
-        <DomainOverview />
-        <AccessSummary />
       </div>
 
       {/* Audit logs: full width */}
