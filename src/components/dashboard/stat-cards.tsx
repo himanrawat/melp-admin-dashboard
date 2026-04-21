@@ -95,19 +95,23 @@ function extractTotalCount(value: unknown): number | undefined {
 
 async function countPagedResults(
   fetchPage: (page: number, pageSize: number) => Promise<unknown>,
-  pageSize = 200,
 ): Promise<number> {
+  // Probe with a single record — the API returns totalCount in the envelope
+  // so we don't need to download a full page of data just to get the count.
+  const probe = await fetchPage(1, 1)
+  const totalCount = extractTotalCount(probe)
+  if (typeof totalCount === "number") return totalCount
+
+  // Fallback: full pagination when totalCount is absent from the response.
+  const pageSize = 200
   let page = 1
   let total = 0
-
   while (true) {
     const result = await fetchPage(page, pageSize)
-    const totalCount = extractTotalCount(result)
-    if (typeof totalCount === "number") return totalCount
-
+    const tc = extractTotalCount(result)
+    if (typeof tc === "number") return tc
     const list = extractList(result)
     total += list.length
-
     if (list.length < pageSize) return total
     page += 1
   }

@@ -139,7 +139,7 @@ export function ViewUserDialog({
     if (!selectedClient || !user.melpid) return
     setLoadingGroups(true)
     try {
-      const raw = await fetchUserGroups({ count: 200 })
+      const raw = await fetchUserGroups({ count: 200, filters: { clientid: Number(selectedClient) } })
       const allGroups = normalizeListPayload(raw).list.map((item) => mapAccessGroupSummary(item))
       const groupsWithPolicies = allGroups.filter((g) => g.policyAssigned !== false)
       const results: PolicyGroup[] = []

@@ -9,6 +9,8 @@ export type User = {
 	email: string;
 	avatar?: string;
 	isAdmin?: boolean;
+	/** 'SUPER' = super-admin, 'ADMIN' = regular admin, undefined = not an admin */
+	role?: string;
 	department: string;
 	designation: string;
 	location: string;

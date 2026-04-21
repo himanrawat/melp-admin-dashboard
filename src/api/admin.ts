@@ -796,22 +796,42 @@ export const removeMultiplePolicies = async (
 
 export const bulkInviteUsers = async (
 	file: File,
-	hasHeader = true,
 ): Promise<unknown> => {
 	const auth = loadStoredAuth();
+
+	// Encrypt file content and melpId to match the legacy SPA flow:
+	// 1. Read file as binary, base64-encode it, then encrypt with the session key
+	// 2. Encrypt melpId with the session key
+	const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+		reader.onerror = reject;
+		reader.readAsArrayBuffer(file);
+	});
+	const b64Content = btoa(
+		String.fromCharCode(...new Uint8Array(arrayBuffer)),
+	);
+	const encryptedContent = await encryptWithSessionKey(b64Content);
+	const encryptedFile = new File([encryptedContent], file.name, {
+		type: file.type,
+		lastModified: file.lastModified,
+	});
+
+	const encryptedMelpId = await encryptWithSessionKey(auth?.user?.melpid || "");
+
 	const formData = new FormData();
-	formData.append("file", file);
-	formData.append("melpId", auth?.user?.melpid || "");
-	formData.append("sessionid", auth?.sessionid || "");
-	formData.append("hasHeader", String(hasHeader));
+	formData.append("file", encryptedFile);
+	formData.append("melpId", encryptedMelpId);
 
 	const API_BASE = (
 		import.meta.env.VITE_MELP_API_BASE || "/MelpService/"
-	).replace(/\/+$/, "/");
+	).replace(/\/+$/, "");
 	const url = `${API_BASE}/admin/invite/bulk/v1`;
 
+	const token = getJwtToken();
 	const res = await fetch(url, {
 		method: "POST",
+		headers: token ? { Authorization: `Bearer ${token}` } : {},
 		body: formData,
 	});
 
@@ -834,7 +854,18 @@ export const bulkInviteUsers = async (
 	}
 
 	if (res.status === 204) return null;
-	return responseBody;
+
+	// Server returns 200 with {status:'FAILURE', message:'...'} for business-logic errors
+	const decoded = await decodeResponse(responseBody);
+	const decodedObj = decoded as Record<string, unknown> | null;
+	if (decodedObj?.status === "FAILURE") {
+		throw new ApiRequestError("Bulk invite failed.", {
+			status: 200,
+			body: { message: decodedObj.message as string },
+		});
+	}
+
+	return decoded;
 };
 
 export const manualInviteUsers = async (users: unknown[]): Promise<unknown> => {
@@ -857,9 +888,12 @@ export const fetchRegistrationRequests = async ({
 	pagesize?: number;
 }): Promise<unknown> => {
 	const auth = loadStoredAuth();
-	const melpId = auth?.user?.melpid || "";
+	const encClientId = await encryptWithSessionKey(clientid);
+	const melpId =
+		getEncryptedMelpid() ||
+		(await encryptWithSessionKey(auth?.user?.melpid || ""));
 	const params = withSession({
-		clientid,
+		clientid: encClientId,
 		status,
 		pagenumber,
 		pagesize,

@@ -20,11 +20,29 @@ import {
   fetchDepartments,
   fetchTitles,
   exportUsers,
+  fetchRegistrationRequests,
 } from "@/api/admin"
 import { getErrorDescription, getStatusCodeFromError } from "@/components/access-management/runtime"
 import { useAuth } from "@/context/auth-context"
 
-type UserTab = "all" | "active" | "inactive" | "admin"
+type UserTab = "all" | "active" | "inactive" | "admin" | "registration"
+
+interface RegRequest {
+  id: string | number
+  userName: string
+  userEmail: string
+  createdAt: string
+  status: number
+}
+
+const REG_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  "-1": { label: "Account Exists", color: "text-amber-700 bg-amber-50" },
+  "-2": { label: "Domain Mismatch", color: "text-gray-700 bg-gray-100" },
+  "-3": { label: "Registration Failed", color: "text-red-600 bg-red-50" },
+  "2": { label: "Profile Completed", color: "text-green-600 bg-green-50" },
+}
+const getRegStatus = (status: number) =>
+  REG_STATUS_LABEL[String(status)] ?? { label: "Registered", color: "text-green-600 bg-green-50" }
 
 const MIN_COLS = 4
 const DEFAULT_PAGE_SIZE = 10
@@ -131,6 +149,20 @@ const isAdminUser = (raw: Record<string, unknown>): boolean => {
   return false
 }
 
+/**
+ * Maps the raw API role field to a normalised role string.
+ * The old PHP admin returns role as 'SUPER', 'ADMIN', 'null' (string), 'not-admin', or empty.
+ * Only 'SUPER' and 'ADMIN' are meaningful; everything else means "not an admin".
+ */
+const mapUserRole = (raw: Record<string, unknown>): string | undefined => {
+  const value = raw.role ?? raw.adminRole ?? raw.adminType
+  if (typeof value !== "string") return undefined
+  const normalized = value.trim().toUpperCase()
+  if (normalized === "SUPER") return "SUPER"
+  if (normalized === "ADMIN") return "ADMIN"
+  return undefined
+}
+
 const isVerifiedUser = (raw: Record<string, unknown>): boolean | undefined => {
   const value = raw.verified ?? raw.isVerified ?? raw.isverified ?? raw.emailVerified ?? raw.verifiedStatus
   if (typeof value === "boolean") return value
@@ -159,6 +191,7 @@ const mapUser = (
     email: pickTextValue(raw.email, raw.emailid),
     avatar: pickTextValue(raw.imageUrl, raw.profileImage, raw.profile, raw.avatar),
     isAdmin: isAdminUser(raw),
+    role: mapUserRole(raw),
     department: pickTextValue(raw.departmentName, raw.department, raw.dept) || "General",
     designation: pickTextValue(raw.professionName, raw.designation, raw.title),
     location: pickTextValue(raw.location, raw.cityname, raw.city),
@@ -258,7 +291,7 @@ const mergeLookupOptions = (...sources: string[][]): string[] => {
 }
 
 export function UsersPage() {
-  const { selectedClient } = useAuth()
+  const { selectedClient, currentAdminType } = useAuth()
   const { success: showSuccess } = usePopup()
 
   const getBulkUploadFeedback = (error: unknown): string => {
@@ -313,6 +346,11 @@ export function UsersPage() {
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [bulkUploading, setBulkUploading] = useState(false)
+
+  const [regList, setRegList] = useState<RegRequest[]>([])
+  const [regLoading, setRegLoading] = useState(false)
+  const [regPage, setRegPage] = useState(1)
+  const [regPageCount, setRegPageCount] = useState(1)
 
   const filterKey = useMemo(() => JSON.stringify({
     department: filters.department,
@@ -508,6 +546,28 @@ export function UsersPage() {
     userFilters,
   ])
 
+  useEffect(() => {
+    if (activeTab !== "registration" || !selectedClient) return
+    let cancelled = false
+    const load = async () => {
+      setRegLoading(true)
+      try {
+        const res = await fetchRegistrationRequests({ clientid: selectedClient, status: 3, pagenumber: regPage, pagesize: 20 })
+        if (cancelled) return
+        const obj = res as Record<string, unknown>
+        const list = (obj?.list ?? []) as RegRequest[]
+        setRegList(list)
+        setRegPageCount(Number(obj?.pageCount ?? 1))
+      } catch {
+        if (!cancelled) setRegList([])
+      } finally {
+        if (!cancelled) setRegLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [activeTab, selectedClient, regPage])
+
   const handleToggleCol = (key: ColKey) => {
     setVisibleCols((prev) => {
       if (prev.has(key) && prev.size <= MIN_COLS) return prev
@@ -556,8 +616,20 @@ export function UsersPage() {
     )))
   }
 
-  async function handleToggleAdmin(id: string, userId: string, makeAdmin: boolean) {
+  async function handleToggleAdmin(id: string, userId: string, makeAdmin: boolean, targetRole?: string) {
     if (!selectedClient) return
+
+    // Only SUPER admins can grant or revoke admin rights (mirrors old isSuperAdmin check)
+    if (currentAdminType !== "SUPER") {
+      toast.error("Only a super admin can grant or remove admin privileges.")
+      return
+    }
+
+    // Cannot remove the super admin role (mirrors old role == 'SUPER' && type != 1 check)
+    if (!makeAdmin && targetRole === "SUPER") {
+      toast.error("You don't have permission to remove a super admin.")
+      return
+    }
 
     try {
       if (makeAdmin) {
@@ -629,7 +701,7 @@ export function UsersPage() {
 
     try {
       setBulkUploading(true)
-      await bulkInviteUsers(file, true)
+      await bulkInviteUsers(file)
       setServerPage(0)
       triggerReload()
       setBulkOpen(false)
@@ -661,6 +733,7 @@ export function UsersPage() {
     selectable: true,
     selectedKeys,
     onSelectionChange: setSelectedKeys,
+    isSuperAdmin: currentAdminType === "SUPER",
   }
 
   let mainContent: ReactNode = null
@@ -673,27 +746,30 @@ export function UsersPage() {
     )
   } else if (!bulkOpen) {
     mainContent = (
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as UserTab)}>
+      <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value as UserTab); setRegPage(1) }}>
         <TabsList variant="line">
           <TabsTrigger value="all">All Users</TabsTrigger>
           <TabsTrigger value="active">Active</TabsTrigger>
           <TabsTrigger value="inactive">Inactive</TabsTrigger>
           <TabsTrigger value="admin">Admin</TabsTrigger>
+          <TabsTrigger value="registration">Registration</TabsTrigger>
         </TabsList>
 
-        <UsersToolbar
-          search={search}
-          onSearchChange={setSearch}
-          filters={filters}
-          onFiltersChange={setFilters}
-          departments={departmentOptions}
-          designations={designationOptions}
-          visibleCols={visibleCols}
-          onToggleCol={handleToggleCol}
-          onExport={() => { void handleExportUsersData() }}
-          onFilterOpenChange={handleFilterOpenChange}
-          minCols={MIN_COLS}
-        />
+        {activeTab !== "registration" && (
+          <UsersToolbar
+            search={search}
+            onSearchChange={setSearch}
+            filters={filters}
+            onFiltersChange={setFilters}
+            departments={departmentOptions}
+            designations={designationOptions}
+            visibleCols={visibleCols}
+            onToggleCol={handleToggleCol}
+            onExport={() => { void handleExportUsersData() }}
+            onFilterOpenChange={handleFilterOpenChange}
+            minCols={MIN_COLS}
+          />
+        )}
 
         <TabsContent value="all" className="mt-4">
           <UsersDataTable users={users} tab="all" {...tableProps} />
@@ -706,6 +782,54 @@ export function UsersPage() {
         </TabsContent>
         <TabsContent value="admin" className="mt-4">
           <UsersDataTable users={users} tab="admin" {...tableProps} />
+        </TabsContent>
+
+        <TabsContent value="registration" className="mt-4">
+          <div className="rounded-md border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Name</th>
+                  <th className="px-4 py-3 text-left font-medium">Email</th>
+                  <th className="px-4 py-3 text-left font-medium">Invited On</th>
+                  <th className="px-4 py-3 text-left font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {regLoading ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                      <IconLoader2 className="inline size-4 animate-spin mr-2" />Loading…
+                    </td>
+                  </tr>
+                ) : regList.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No registration requests found.</td>
+                  </tr>
+                ) : regList.map((row) => {
+                  const { label, color } = getRegStatus(row.status)
+                  const date = new Date(row.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+                  return (
+                    <tr key={row.id} className="border-t hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-medium">{row.userName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{row.userEmail}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{date}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>{label}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {regPageCount > 1 && (
+            <div className="flex items-center justify-end gap-2 mt-3">
+              <Button variant="outline" size="sm" disabled={regPage <= 1} onClick={() => setRegPage(p => p - 1)}>Previous</Button>
+              <span className="text-sm text-muted-foreground">Page {regPage} of {regPageCount}</span>
+              <Button variant="outline" size="sm" disabled={regPage >= regPageCount} onClick={() => setRegPage(p => p + 1)}>Next</Button>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     )

@@ -46,6 +46,8 @@ export interface Domain {
   clientid: string
   client_name: string
   domain: string
+  /** 'SUPER' = super-admin, 'ADMIN' = regular admin. Returned by /AdminPanel/domains */
+  adminType?: string
   [key: string]: unknown
 }
 

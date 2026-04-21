@@ -12,6 +12,8 @@ interface AuthContextValue {
   selectedClientName: string
   domains: Domain[]
   setDomains: React.Dispatch<React.SetStateAction<Domain[]>>
+  /** 'SUPER' if current user is a super-admin for the selected domain, 'ADMIN' otherwise */
+  currentAdminType: string | undefined
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -27,6 +29,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [selectedClient, setSelectedClientState] = useState(authState?.clientid || storedClientId)
   const [selectedClientName, setSelectedClientNameState] = useState(authState?.clientname || storedClientName)
   const [domains, setDomains] = useState<Domain[]>([])
+
+  const currentAdminType = useMemo(() => {
+    const domain = domains.find(
+      (d) => String(d.clientid || d.client_id || '') === selectedClient,
+    )
+    const raw = domain?.adminType
+    return typeof raw === 'string' ? raw : undefined
+  }, [domains, selectedClient])
 
   const persistAuth = (nextState: AuthState | null) => {
     setAuthState(nextState)
@@ -75,9 +85,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       selectedClientName,
       domains,
       setDomains,
+      currentAdminType,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [authState, isAuthenticated, selectedClient, selectedClientName, domains, setSelectedClient],
+    [authState, isAuthenticated, selectedClient, selectedClientName, domains, setSelectedClient, currentAdminType],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

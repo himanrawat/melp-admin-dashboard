@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { toast } from "sonner"
 import { IconDots, IconUserCheck, IconUserOff, IconKey, IconEye, IconPencil, IconShield, IconShieldOff } from "@tabler/icons-react"
 import { DataTable, type ColumnDef } from "@/components/shared/data-table"
 import { Badge } from "@/components/ui/badge"
@@ -49,15 +50,21 @@ function RowActions({
   onToggleStatus,
   onToggleAdmin,
   onEdited,
+  isSuperAdmin,
 }: {
   user: User
   onToggleStatus: (id: string, status: "active" | "inactive") => void
-  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean) => void
+  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean, targetRole?: string) => void
   onEdited: (updated: User) => void
+  isSuperAdmin?: boolean
 }) {
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const { danger, warning } = usePopup()
+
+  // Only SUPER admins can change admin rights; also cannot remove another SUPER admin
+  const canToggleAdmin = isSuperAdmin === true
+  const canRemoveAdmin = canToggleAdmin && user.role !== "SUPER"
 
   return (
     <>
@@ -72,11 +79,18 @@ function RowActions({
           <DropdownMenuItem onSelect={() => setEditOpen(true)}><IconPencil className="size-4 mr-2" /> Edit User</DropdownMenuItem>
           {user.status === "active" ? (
             <DropdownMenuItem
-              onSelect={() => danger(
-                "Deactivate User",
-                `"${user.name}" will lose access immediately. You can reactivate them at any time.`,
-                () => onToggleStatus(user.id, "inactive"),
-              )}
+              onSelect={() => {
+                // Cannot deactivate an admin — must remove admin role first (mirrors old changeStatus guard)
+                if (user.isAdmin) {
+                  toast.error("Remove the admin role before deactivating this user.")
+                  return
+                }
+                danger(
+                  "Deactivate User",
+                  `"${user.name}" will lose access immediately. You can reactivate them at any time.`,
+                  () => onToggleStatus(user.id, "inactive"),
+                )
+              }}
               className="text-destructive focus:text-destructive"
             >
               <IconUserOff className="size-4 mr-2 text-destructive" />
@@ -96,10 +110,11 @@ function RowActions({
           ) : null}
           {user.isAdmin ? (
             <DropdownMenuItem
-              onSelect={() => danger(
+              disabled={!canRemoveAdmin}
+              onSelect={() => canRemoveAdmin && danger(
                 "Remove Admin",
                 `"${user.name}" will lose admin privileges.`,
-                () => onToggleAdmin(user.id, user.melpid || user.id, false),
+                () => onToggleAdmin(user.id, user.melpid || user.id, false, user.role),
               )}
               className="text-destructive focus:text-destructive"
             >
@@ -108,10 +123,11 @@ function RowActions({
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
-              onSelect={() => warning(
+              disabled={!canToggleAdmin}
+              onSelect={() => canToggleAdmin && warning(
                 "Make Admin",
                 `"${user.name}" will be granted admin privileges.`,
-                () => onToggleAdmin(user.id, user.melpid || user.id, true),
+                () => onToggleAdmin(user.id, user.melpid || user.id, true, user.role),
               )}
             >
               <IconShield className="size-4 mr-2" />
@@ -145,6 +161,7 @@ export function UsersDataTable({
   selectable,
   selectedKeys,
   onSelectionChange,
+  isSuperAdmin,
 }: {
   users: User[]
   visibleCols: Set<ColKey>
@@ -159,11 +176,13 @@ export function UsersDataTable({
   onAdd?: () => void
   onInvite?: () => void
   onToggleStatus: (id: string, status: "active" | "inactive") => void
-  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean) => void
+  onToggleAdmin: (id: string, userId: string, makeAdmin: boolean, targetRole?: string) => void
   onEdited?: (updated: User) => void
   selectable?: boolean
   selectedKeys?: Set<string>
   onSelectionChange?: (keys: Set<string>) => void
+  /** True only when the logged-in user is a SUPER admin for the selected domain */
+  isSuperAdmin?: boolean
 }) {
   const handleEdited = onEdited ?? (() => { })
 
@@ -241,7 +260,7 @@ export function UsersDataTable({
       id: "actions",
       header: "",
       accessor: (u) => (
-        <RowActions user={u} onToggleStatus={onToggleStatus} onToggleAdmin={onToggleAdmin} onEdited={handleEdited} />
+        <RowActions user={u} onToggleStatus={onToggleStatus} onToggleAdmin={onToggleAdmin} onEdited={handleEdited} isSuperAdmin={isSuperAdmin} />
       ),
       align: "right",
       minWidth: "60px",
